@@ -10,90 +10,38 @@
 
 
 struct Piece {
-
-
     // assume black, undragged, pawn if active
-    enum FLAGS {
+    enum Flags : unsigned char {
         NONE        = 0b0000,
 
         ACTIVE      = 0b1000,
         YELLOW      = 0b0001,
         SHAIKH      = 0b0010,
         DRAGGED     = 0b0100,
-    };
-
-    constexpr Piece operator&(const Piece f) const noexcept {
-        return static_cast<FLAGS>(static_cast<std::underlying_type_t<Piece::FLAGS>>(flags) & static_cast<std::underlying_type_t<Piece::FLAGS>>(f.flags));
-    }
-
-    constexpr Piece operator&(const FLAGS f) const noexcept {
-        return static_cast<FLAGS>(static_cast<std::underlying_type_t<Piece::FLAGS>>(flags) & static_cast<std::underlying_type_t<Piece::FLAGS>>(f));
-    }
-    constexpr friend FLAGS operator&(const FLAGS f1, const FLAGS f2) noexcept {
-        return static_cast<FLAGS>(static_cast<std::underlying_type_t<Piece::FLAGS>>(f1) & static_cast<std::underlying_type_t<Piece::FLAGS>>(f2));
-    }
-    constexpr friend FLAGS operator&(const FLAGS f1, const int f2) noexcept {
-        return static_cast<FLAGS>(static_cast<std::underlying_type_t<Piece::FLAGS>>(f1) & f2);
-    }
-
-    constexpr Piece operator|(const Piece f) const noexcept {
-        return static_cast<FLAGS>(static_cast<std::underlying_type_t<Piece::FLAGS>>(flags) | static_cast<std::underlying_type_t<Piece::FLAGS>>(f.flags));
-    }
-    constexpr Piece operator|(const FLAGS f) const noexcept {
-        return static_cast<FLAGS>(static_cast<std::underlying_type_t<Piece::FLAGS>>(flags) | static_cast<std::underlying_type_t<Piece::FLAGS>>(f));
-    }
-    constexpr friend FLAGS operator|(const FLAGS f1, const FLAGS f2) noexcept {
-        return static_cast<FLAGS>(static_cast<std::underlying_type_t<Piece::FLAGS>>(f1) | static_cast<std::underlying_type_t<Piece::FLAGS>>(f2));
-    }
-    constexpr friend FLAGS operator|(const FLAGS f1, const int f2) noexcept {
-        return static_cast<FLAGS>(static_cast<std::underlying_type_t<Piece::FLAGS>>(f1) | f2);
-    }
-
-    constexpr Piece operator~() const noexcept {
-        return static_cast<FLAGS>(~static_cast<std::underlying_type_t<Piece::FLAGS>>(flags));
-    }
-    constexpr friend FLAGS operator~(const FLAGS f) noexcept {
-        return static_cast<FLAGS>((~static_cast<std::underlying_type_t<Piece::FLAGS>>(f)) & 0b1111);
-    }
+    } flags : 4 = Flags::NONE;
 
 
-    // constexpr bool operator not() const noexcept {
-    //     return not static_cast<std::underlying_type_t<Piece::FLAGS>>(flags);
-    // }
-
-
-    constexpr Piece(FLAGS f) noexcept : flags{f} {}
-    constexpr Piece& operator=(const FLAGS& f) noexcept { flags = f; return *this; }
+    constexpr Piece(Flags f) noexcept : flags{f} {}
+    constexpr Piece& operator=(const Flags& f) noexcept { flags = f; return *this; }
 
     // rule of 5,, just to be safe
     constexpr Piece() noexcept = default;
-    constexpr Piece(const Piece& p) noexcept = default;
-    constexpr Piece(Piece&& p) noexcept = default;
-    constexpr Piece& operator=(const Piece& p) noexcept = default;
-    constexpr Piece& operator=(Piece&& p) noexcept = default;
+    constexpr Piece(const Piece&) noexcept = default;
+    constexpr Piece(Piece&&) noexcept = default;
+    constexpr Piece& operator=(const Piece&) noexcept = default;
+    constexpr Piece& operator=(Piece&&) noexcept = default;
 
-    // enum class Color { NONE, YELLOW, BLACK, };
 
-    // Position position{};
-
-    // Color color{};
-    // bool shaikh{};
-    // bool dragged = false;
-
-    FLAGS flags : 4 = FLAGS::NONE;
-
-    constexpr bool isActive()     const noexcept { return flags & FLAGS::ACTIVE;      }
-    constexpr bool isYellow()     const noexcept { return flags & FLAGS::YELLOW;      }
+    constexpr bool isActive()     const noexcept { return flags & Flags::ACTIVE;      }
+    constexpr bool isYellow()     const noexcept { return flags & Flags::YELLOW;      }
     constexpr bool isBlack()      const noexcept { return not isYellow();             }
     constexpr bool isPawn()       const noexcept { return not isShaikh();             }
-    constexpr bool isShaikh()     const noexcept { return flags & FLAGS::SHAIKH;      }
-    constexpr bool isDragged()    const noexcept { return flags & FLAGS::DRAGGED;     }
+    constexpr bool isShaikh()     const noexcept { return flags & Flags::SHAIKH;      }
+    constexpr bool isDragged()    const noexcept { return flags & Flags::DRAGGED;     }
 
     constexpr void setDragged(const bool d) noexcept {
-        if (d) flags = flags | FLAGS::DRAGGED;
-        else {
-            flags = flags & ~FLAGS::DRAGGED;
-        }
+        if (d) flags = flags |  Flags::DRAGGED;
+        else   flags = flags & ~Flags::DRAGGED;
     }
 
 
@@ -148,8 +96,42 @@ struct Piece {
         sf::Sprite crown{CROWN_IMAGE};
         crown.setOrigin({256, 256});
         crown.setScale({.1, .1});
-
         return crown;
     }();
+
+
+
+
+
+    constexpr Piece operator&(const Piece f) const noexcept {
+        return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(flags) & static_cast<std::underlying_type_t<Piece::Flags>>(f.flags));
+    }
+    constexpr Piece operator&(const Flags f) const noexcept {
+        return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(flags) & static_cast<std::underlying_type_t<Piece::Flags>>(f));
+    }
+    constexpr friend Flags operator&(const Flags f1, const Flags f2) noexcept {
+        return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(f1) & static_cast<std::underlying_type_t<Piece::Flags>>(f2));
+    }
+    constexpr friend Flags operator&(const Flags f1, const int f2) noexcept {
+        return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(f1) & f2);
+    }
+    constexpr Piece operator|(const Piece f) const noexcept {
+        return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(flags) | static_cast<std::underlying_type_t<Piece::Flags>>(f.flags));
+    }
+    constexpr Piece operator|(const Flags f) const noexcept {
+        return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(flags) | static_cast<std::underlying_type_t<Piece::Flags>>(f));
+    }
+    constexpr friend Flags operator|(const Flags f1, const Flags f2) noexcept {
+        return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(f1) | static_cast<std::underlying_type_t<Piece::Flags>>(f2));
+    }
+    constexpr friend Flags operator|(const Flags f1, const int f2) noexcept {
+        return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(f1) | f2);
+    }
+    constexpr Piece operator~() const noexcept {
+        return static_cast<Flags>(~static_cast<std::underlying_type_t<Piece::Flags>>(flags));
+    }
+    constexpr friend Flags operator~(const Flags f) noexcept {
+        return static_cast<Flags>((~static_cast<std::underlying_type_t<Piece::Flags>>(f)) & 0b1111);
+    }
 };
 
