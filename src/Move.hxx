@@ -48,9 +48,6 @@ struct Move {
 
 
     constexpr bool isValid() const noexcept { return positions.size(); }
-    constexpr bool doesEat() const noexcept { return  captures.size(); }
-
-
-
+    constexpr bool doesCapture() const noexcept { return  captures.size(); }
 };
 

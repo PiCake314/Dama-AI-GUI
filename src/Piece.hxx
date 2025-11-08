@@ -102,6 +102,17 @@ struct Piece {
 
 
 
+    void prettyPrint() const {
+        if (not isActive()) {
+            std::clog << ' ';
+        }
+        else if (isYellow()) {
+            std::clog << (isShaikh() ? 'Y' : 'y');
+        }
+        else {
+            std::clog << (isShaikh() ? 'B' : 'b');
+        }
+    }
 
     constexpr Piece operator&(const Piece f) const noexcept {
         return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(flags) & static_cast<std::underlying_type_t<Piece::Flags>>(f.flags));
