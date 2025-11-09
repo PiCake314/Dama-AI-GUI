@@ -287,12 +287,13 @@ struct BoardState {
     }
 
 
-    std::vector<Move> generateShaikhCaptureMoves(const Piece piece, const Position pos) {
+    std::vector<Move> generateShaikhCaptureMoves(const Piece piece, const Position pos, const int forbidden_direction) {
         std::vector<Move> moves;
 
 
-
         for (const auto direction_idx : range(4)) {
+            if (direction_idx == forbidden_direction) continue;
+
             Position capture_pos;
             Piece captured_piece;
             for(int count{}; const auto distance : DATA_ARRAY[pos.y][pos.x][direction_idx]) {
@@ -321,7 +322,7 @@ struct BoardState {
                     if (count == 1) {
 
                         simulateCapture(piece,                 pos, capture_pos,     landing_pos);
-                        const auto continuations = generateShaikhCaptureMoves(piece, landing_pos);
+                        const auto continuations = generateShaikhCaptureMoves(piece, landing_pos, (direction_idx + 2) % 4);
                         unsimulateCapture(piece, captured_piece, pos, capture_pos,   landing_pos);
 
 
@@ -374,7 +375,7 @@ struct BoardState {
                         moves.push_back({{pos, landing_pos}});
                     }
                     if (count == 1) {
-                        auto capture_moves = generateShaikhCaptureMoves(piece, pos);
+                        auto capture_moves = generateShaikhCaptureMoves(piece, pos, (direction_idx + 2) % 4);
                         moves.insert_range(moves.cend(), std::move(capture_moves));
                     }
                 }

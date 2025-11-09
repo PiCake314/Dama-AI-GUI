@@ -12,6 +12,10 @@ FetchContent_Declare(SFML
     SYSTEM)
 FetchContent_MakeAvailable(SFML)
 
-add_executable(main src/main.cc)
-target_compile_features(main PRIVATE cxx_std_23)
-target_link_libraries(main PRIVATE SFML::Graphics)
+add_executable(dama src/main.cc)
+target_compile_features(dama PRIVATE cxx_std_23)
+target_link_libraries(dama PRIVATE SFML::Graphics)
+
+set_target_properties(dama PROPERTIES
+  OUTPUT_NAME "Dama AI"
+)

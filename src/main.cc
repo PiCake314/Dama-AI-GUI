@@ -121,15 +121,16 @@ void winningText(sf::RenderWindow& window, const std::string_view t) {
 }
 
 int main() {
+    using std::operator""sv;
 
     auto window = sf::RenderWindow(sf::VideoMode({720uz, 720uz}), "Dama AI", sf::Style::Close);
-    sf::Image icon{"src/assets/icon.png"};
+    sf::Image icon{"src/assets/icon2.png"};
     window.setIcon(icon);
 
     window.setFramerateLimit(144);
 
 
-    BoardState board;
+    BoardState board; // {"8/8/8/8/8/8/1y2B1y1/8"sv, false};
     std::span<Move> highlights;
 
     while (window.isOpen()) {
