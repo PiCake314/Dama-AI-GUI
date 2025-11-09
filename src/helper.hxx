@@ -5,6 +5,7 @@
 #include <concepts>
 
 constexpr auto range(std::integral auto limit) { return std::views::iota(0, limit); }
+constexpr auto range(std::integral auto start, std::integral auto limit) { return std::views::iota(start, limit); }
 
 
 template <typename T,

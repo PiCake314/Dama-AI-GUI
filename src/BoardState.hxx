@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <cmath>
 #include <string_view>
 #include <array>
 #include <vector>
@@ -13,6 +14,30 @@
 #include "Piece.hxx"
 #include "Move.hxx"
 #include "helper.hxx"
+
+
+consteval auto precomputeData(){
+    std::array<std::array<std::array<static_vector<Position, 8>, 4>, 8>, 8> data{};
+
+    for(int i = 0; i < 8; ++i){
+        for(int j = 0; j < 8; ++j){
+            const auto num_north = i;
+            const auto num_east  = 8 - j - 1;
+            const auto num_south = 8 - i - 1;
+            const auto num_west  = j;
+
+            for (const auto e : range(1, num_north +1)) data[i][j][0].push_back({ 0, -e});
+            for (const auto e : range(1, num_east  +1)) data[i][j][1].push_back({ e,  0});
+            for (const auto e : range(1, num_south +1)) data[i][j][2].push_back({ 0,  e});
+            for (const auto e : range(1, num_west  +1)) data[i][j][3].push_back({-e,  0});
+
+            // data[i][j] = {num_north, num_east, num_south, num_west};
+        }
+    }
+
+    return data;
+}
+constexpr auto DATA_ARRAY = precomputeData();
 
 
 struct BoardState {
@@ -34,63 +59,41 @@ struct BoardState {
     std::vector<Move> possible_moves;
 
 
+    explicit constexpr BoardState(const std::string_view fen = STARTING_FEN, bool yellow_starts = true) noexcept
+    : turn{yellow_starts}
+    {
+        parseFen(fen);
+        generateMoves();
+    }
+
+    explicit constexpr BoardState(bool yellow_starts) noexcept
+    : turn{yellow_starts}
+    {
+        parseFen(STARTING_FEN);
+        generateMoves();
+    }
+
+    size_t yellowCount() const noexcept {
+        size_t count{};
+        for (const auto& row : board) for (const auto& piece : row) count += piece.isActive() and piece.isYellow();
+        return count;
+    }
+
+    size_t blackCount() const noexcept {
+        size_t count{};
+        for (const auto& row : board) for (const auto& piece : row) count += piece.isActive() and piece.isBlack();
+        return count;
+    }
+
+    bool done() const noexcept { return yellowCount() == 0 or blackCount() == 0; }
+
+
     bool yellowTurn() const noexcept { return turn == YELLOW_TURN; }
     bool blackTurn()  const noexcept { return turn == BLACK_TURN;  }
     void nextTurn() noexcept { turn =! turn; }
     auto currentForward() const noexcept { return yellowTurn() ? YELLOW_FORWARD : BLACK_FORWARD; }
-    auto& get(const Position pos) noexcept { return board[pos.y][pos.x]; }
-
-    explicit BoardState(const std::string_view fen = STARTING_FEN) noexcept {
-        int x = 0;
-        int y = 0;
-
-        size_t index{};
-
-        for(char c : fen){
-            switch(c){
-                case 'y':
-                    // pieces[index] = Piece{{x, y}, Piece::Color::YELLOW, false};
-                    // board[y][x] = Piece{{x, y}, Piece::Color::YELLOW, false};
-                    board[y][x] = Piece::Flags::ACTIVE | Piece::Flags::YELLOW;
-
-                    ++x;
-                    ++index;
-                    break;
-                case 'Y':
-                    // pieces[index] = Piece{{x, y}, Piece::Color::YELLOW, true};
-                    // board[y][x] = Piece{{x, y}, Piece::Color::YELLOW, true};
-                    board[y][x] = Piece::Flags::ACTIVE | Piece::Flags::YELLOW | Piece::Flags::SHAIKH;
-                    ++x;
-                    ++index;
-                    break;
-                case 'b':
-                    // pieces[index] = Piece{{x, y}, Piece::Color::BLACK, false};
-                    // board[y][x] = Piece{{x, y}, Piece::Color::BLACK, false};
-                    board[y][x] = Piece::Flags::ACTIVE; // active assumed to be black pawn
-                    ++x;
-                    ++index;
-                    break;
-                case 'B':
-                    // pieces[index] = Piece{{x, y}, Piece::Color::BLACK, true};
-                    // board[y][x] = Piece{{x, y}, Piece::Color::BLACK, true};
-                    board[y][x] = Piece::Flags::ACTIVE | Piece::Flags::SHAIKH;
-                    ++x;
-                    ++index;
-                    break;
-                case '/':
-                    ++y;
-                    x = 0;
-                    break;
-                default:
-                    int num = c - '0';
-                    x += num;
-                    break;
-            }
-        }
-
-        generateMoves();
-    }
-
+          auto& get(const Position pos)       noexcept { return board[pos.y][pos.x]; }
+    const auto& get(const Position pos) const noexcept { return board[pos.y][pos.x]; }
 
     bool prev_holding = false;
     bool curr_holding = false;
@@ -158,12 +161,14 @@ struct BoardState {
 
 
 
-            board[y][x] = board[holding_y][holding_x];
-            board[holding_y][holding_x] = Piece{};
+            get({x, y}) = get({holding_x, holding_y});
+            get({holding_x, holding_y}).reset();
+
+            if (y == 0 or y == 7) get({x, y}).promote();
 
 
 
-            if (move_iter->doesCapture()) get(move_iter->captures[0]) = Piece{}; // reset captured piece!
+            if (move_iter->doesCapture()) get(move_iter->captures[0]).reset(); // reset captured piece!
 
             // positions = [from -> to]. we're done here
             if (move_iter->positions.size() == 2) nextTurn();
@@ -202,21 +207,19 @@ struct BoardState {
 
 
     void simulateCapture(const Piece piece, const Position from, const Position capture, const Position to) noexcept {
-        get(from) = Piece{};
-        get(capture) = Piece{};
+        get(from).reset();
+        get(capture).reset();
         get(to) = piece;
     }
 
     void unsimulateCapture(const Piece piece, const Piece captured_piece, const Position from, const Position capture, const Position to) noexcept {
         get(from) = piece;
         get(capture) = captured_piece;
-        get(to) = Piece{};
+        get(to).reset();
     }
 
 
-    std::vector<Move> generatePawnCaptureMoves(const Piece piece, const Position pos) {
-        prettyPrint();
-
+    std::vector<Move> generateManCaptureMoves(const Piece piece, const Position pos) {
         const auto forward = currentForward();
 
         std::vector<Move> moves;
@@ -225,35 +228,25 @@ struct BoardState {
             const auto captured_piece = get(capture_pos); 
             const auto landing_pos = capture_pos + direction;
 
-            //                                      if the captured piece is not the opponent's
+
             if (
-                   not isValidPosition(landing_pos)
-                or     get(landing_pos).isActive()
-                or not captured_piece.isActive()
-                or     captured_piece.isYellow() == yellowTurn()
+                   not isValidPosition(landing_pos) // outside the board
+                or not captured_piece.isActive()    // not capturing a piece
+                or   get(landing_pos).isActive()    // landing at an occupied position
+                or     captured_piece.isYellow() == yellowTurn() // captured piece is not the opponent's
             ) continue;
 
 
-            // can't capture my own piece
+              simulateCapture(piece,                 pos, capture_pos, landing_pos);
+            const auto continuations = generateManCaptureMoves(piece,  landing_pos);
+            unsimulateCapture(piece, captured_piece, pos, capture_pos, landing_pos);
 
-
-            // moves.push_back(Move{{pos, landing_pos}, {capture_pos}});
-
-            // simulate a move;
-            // get(landing_pos) = piece;
-            // get(pos) = Piece{};
-            // get(capture_pos) = Piece{};
-            simulateCapture(piece, pos, capture_pos, landing_pos);
-
-            auto continuations = generatePawnCaptureMoves(piece, landing_pos);
-
-            Move move{{pos, /* landing_pos */ }, {capture_pos, }};
             if (continuations.empty()) {
-                move.positions.push_back(landing_pos);
-                moves.push_back(move);
+                moves.push_back({{pos, landing_pos}, {capture_pos, }});
             }
             else for (const auto& cont : continuations) {
-                for (const auto& position : cont.positions /* | std::views::drop(1) */ ) { //// dropping the first position since it was accounted for in `move` above
+                Move move{{pos, /* landing_pos */ }, {capture_pos, }};
+                for (const auto& position : cont.positions) {
                     move.positions.push_back(position);
                 }
 
@@ -264,21 +257,14 @@ struct BoardState {
                 moves.push_back(move);
             }
 
-
-            // unsimulate a move;
-            // get(pos) = piece;
-            // get(landing_pos) = Piece{};
-            // get(capture_pos) = captured_piece;
-            unsimulateCapture(piece, captured_piece, pos, capture_pos, landing_pos);
-
         }
 
 
         return moves;
     }
 
-    std::vector<Move> generatePawnMoves(const Piece piece, const Position pos) {
 
+    std::vector<Move> generateManMoves(const Piece piece, const Position pos) {
         const auto forward = currentForward();
 
         std::vector<Move> moves;
@@ -292,19 +278,7 @@ struct BoardState {
                 moves.push_back({{pos, landing_pos}});
             }
             else if (landing_piece.isYellow() != yellowTurn()) { // landing piece is an opponent piece
-                // check if the next block is a valid inactive piece, if so, this is a capturing move
-                // const auto capture_pos = landing_pos;
-                // const auto new_landing_pos = capture_pos + direction; // move an extra step
-                // if (not isValidPosition(new_landing_pos)) continue;
-
-                // // Move move{{pos, capture_landing_pos}, {landing_pos}};
-                // const auto captured_piece = get(capture_pos);
-
-                // simulateCapture(piece, pos, capture_pos, new_landing_pos);
-                auto capture_moves = generatePawnCaptureMoves(piece, pos);
-                // unsimulateCapture(piece, captured_piece, pos, capture_pos, new_landing_pos);
-
-
+                auto capture_moves = generateManCaptureMoves(piece, pos);
                 moves.insert_range(moves.cend(), std::move(capture_moves));
             }
         }
@@ -312,8 +286,102 @@ struct BoardState {
         return moves;
     }
 
+
+    std::vector<Move> generateShaikhCaptureMoves(const Piece piece, const Position pos) {
+        std::vector<Move> moves;
+
+
+
+        for (const auto direction_idx : range(4)) {
+            Position capture_pos;
+            Piece captured_piece;
+            for(int count{}; const auto distance : DATA_ARRAY[pos.y][pos.x][direction_idx]) {
+                const auto landing_pos = pos + distance;
+
+                const auto landing_piece = get(landing_pos);
+
+                if (landing_piece.isActive()) {
+                    if (landing_piece.isYellow() == yellowTurn()) break; // can't jump over my own piece. Go to next direction
+
+                    // landing_piece.isYellow() != yellowTurn()
+                    // counting the opponents pieces I encounter
+                    else {
+                        ++count;                                                                   // up here v
+                        if (count == 1) {
+                            capture_pos = landing_pos;
+                            captured_piece = get(capture_pos);
+                        }
+                        // count has to be greater than 1 since it starts as 0 and we're incrementing up there ^
+                        else break; // cannot jump over more than 1 opponent piece
+                    }
+                }
+
+                // not landing_piece.isActive()
+                else {
+                    if (count == 1) {
+
+                        simulateCapture(piece,                 pos, capture_pos,     landing_pos);
+                        const auto continuations = generateShaikhCaptureMoves(piece, landing_pos);
+                        unsimulateCapture(piece, captured_piece, pos, capture_pos,   landing_pos);
+
+
+                        if (continuations.empty()) {
+                            moves.push_back({{pos, landing_pos}, {capture_pos, }});
+                        }
+                        else for (const auto& cont : continuations) {
+                            Move move{{pos, /* landing_pos */ }, {capture_pos, }};
+                            for (const auto& position : cont.positions) {
+                                move.positions.push_back(position);
+                            }
+
+                            for (const auto& capture : cont.captures) {
+                                move.captures.push_back(capture);
+                            }
+
+                            moves.push_back(move);
+                        }
+                    }
+                }
+            }
+        }
+
+        return moves;
+    }
+
+
     std::vector<Move> generateShaikhMoves(const Piece piece, const Position pos) {
-        return {};
+        std::vector<Move> moves;
+
+        for (const auto direction_idx : range(4)) {
+
+                // counting opponent's pieces across a certain direction. 
+            for (int count{}; const auto distance : DATA_ARRAY[pos.y][pos.x][direction_idx]) {
+                const auto landing_pos = pos + distance;
+
+                const auto landing_piece = get(landing_pos);
+
+                if (landing_piece.isActive()) {
+                    if (landing_piece.isYellow() == yellowTurn()) break; // can't jump over my own piece. Go to next direction
+
+                    // landing_piece.isYellow() != yellowTurn()
+                    // counting the opponents pieces I encounter
+                    else if (++count > 1) break; // cannot jump over more than 1 opponent piece
+                }
+
+                // not landing_piece.isActive()
+                else {
+                    if (count == 0) {
+                        moves.push_back({{pos, landing_pos}});
+                    }
+                    if (count == 1) {
+                        auto capture_moves = generateShaikhCaptureMoves(piece, pos);
+                        moves.insert_range(moves.cend(), std::move(capture_moves));
+                    }
+                }
+            }
+        }
+
+        return moves;
     }
 
 
@@ -328,23 +396,76 @@ struct BoardState {
                     possible_moves.insert_range(
                         possible_moves.cend(),
                         piece.isPawn() ?
-                            generatePawnMoves(piece, {static_cast<int>(x), static_cast<int>(y)})
+                            generateManMoves(piece, {static_cast<int>(x), static_cast<int>(y)})
                         : generateShaikhMoves(piece, {static_cast<int>(x), static_cast<int>(y)})
                     );
             }
         }
 
 
-        if (std::ranges::any_of(possible_moves, [] (const auto& move) { return move.doesCapture(); }))
+        if (std::ranges::any_of(possible_moves, [] (const auto& move) { return move.doesCapture(); })) {
+
             // possible_moves = std::ranges::remove_if(possible_moves, [] (const auto& move) { return not move.doesCapture(); }) | std::ranges::to<std::vector<Move>>();
             // possible_moves.erase(std::remove_if(possible_moves.begin(), possible_moves.end(), [] (const auto& move) { return not move.doesCapture(); }), possible_moves.cend());
             // std::erase_if(std::begin(possible_moves), std::end(possible_moves), )
-            std::erase_if(possible_moves, [] (const auto& move) { return not move.doesCapture(); });
+            const auto max_captures = std::ranges::max_element(possible_moves, [] (const Move& m1, const Move& m2) { return m1.captures.size() < m2.captures.size(); })->captures.size();
+            std::clog << "Max captures: " << max_captures << '\n';
+            std::erase_if(possible_moves, [max_captures] (const Move& move) { return move.captures.size() < max_captures; });
+        }
 
 
         printMoves(possible_moves);
     }
 
+
+    void parseFen(const std::string_view fen) noexcept {
+        int x = 0;
+        int y = 0;
+
+        size_t index{};
+
+        for(char c : fen){
+            switch(c){
+                case 'y':
+                    // pieces[index] = Piece{{x, y}, Piece::Color::YELLOW, false};
+                    // board[y][x] = Piece{{x, y}, Piece::Color::YELLOW, false};
+                    board[y][x] = Piece::Flags::ACTIVE | Piece::Flags::YELLOW;
+
+                    ++x;
+                    ++index;
+                    break;
+                case 'Y':
+                    // pieces[index] = Piece{{x, y}, Piece::Color::YELLOW, true};
+                    // board[y][x] = Piece{{x, y}, Piece::Color::YELLOW, true};
+                    board[y][x] = Piece::Flags::ACTIVE | Piece::Flags::YELLOW | Piece::Flags::SHAIKH;
+                    ++x;
+                    ++index;
+                    break;
+                case 'b':
+                    // pieces[index] = Piece{{x, y}, Piece::Color::BLACK, false};
+                    // board[y][x] = Piece{{x, y}, Piece::Color::BLACK, false};
+                    board[y][x] = Piece::Flags::ACTIVE; // active assumed to be black man
+                    ++x;
+                    ++index;
+                    break;
+                case 'B':
+                    // pieces[index] = Piece{{x, y}, Piece::Color::BLACK, true};
+                    // board[y][x] = Piece{{x, y}, Piece::Color::BLACK, true};
+                    board[y][x] = Piece::Flags::ACTIVE | Piece::Flags::SHAIKH;
+                    ++x;
+                    ++index;
+                    break;
+                case '/':
+                    ++y;
+                    x = 0;
+                    break;
+                default:
+                    int num = c - '0';
+                    x += num;
+                    break;
+            }
+        }
+    }
 
     void prettyPrint() const {
         std::clog << "==================\n";
@@ -372,4 +493,7 @@ struct BoardState {
             std::clog << "\n\n";
         }
     }
+
+
+
 };

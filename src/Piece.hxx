@@ -33,11 +33,16 @@ struct Piece {
 
 
     constexpr bool isActive()     const noexcept { return flags & Flags::ACTIVE;      }
+
+    // should probably add a isActive check but for now we're gonna assume it is!
     constexpr bool isYellow()     const noexcept { return flags & Flags::YELLOW;      }
     constexpr bool isBlack()      const noexcept { return not isYellow();             }
     constexpr bool isPawn()       const noexcept { return not isShaikh();             }
     constexpr bool isShaikh()     const noexcept { return flags & Flags::SHAIKH;      }
     constexpr bool isDragged()    const noexcept { return flags & Flags::DRAGGED;     }
+
+    constexpr void promote() noexcept { flags = flags | Flags::SHAIKH; }
+    constexpr void reset() noexcept { flags = Flags::NONE; }
 
     constexpr void setDragged(const bool d) noexcept {
         if (d) flags = flags |  Flags::DRAGGED;
