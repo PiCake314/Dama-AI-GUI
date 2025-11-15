@@ -6,14 +6,18 @@
 #include <array>
 #include <vector>
 #include <span>
+#include <utility>
 #include <algorithm>
 #include <ranges>
+#include <limits>
 
 #include <SFML/Graphics.hpp>
 
 #include "Piece.hxx"
 #include "Move.hxx"
 #include "helper.hxx"
+
+constexpr auto INF = 100000;
 
 
 consteval auto precomputeData(){
@@ -75,13 +79,13 @@ struct BoardState {
 
     size_t yellowCount() const noexcept {
         size_t count{};
-        for (const auto& row : board) for (const auto& piece : row) count += piece.isActive() and piece.isYellow();
+        for (const auto& row : board) for (const auto piece : row) count += piece.isActive() and piece.isYellow();
         return count;
     }
 
     size_t blackCount() const noexcept {
         size_t count{};
-        for (const auto& row : board) for (const auto& piece : row) count += piece.isActive() and piece.isBlack();
+        for (const auto& row : board) for (const auto piece : row) count += piece.isActive() and piece.isBlack();
         return count;
     }
 
@@ -100,6 +104,8 @@ struct BoardState {
     Piece *dragging = nullptr;
     int holding_x, holding_y;
     std::vector<Move> holding_moves;
+    // Move inflight;
+    std::vector<Move> inflight_moves; // there could be multiple moves in flight!
 
     void checkPressed(sf::RenderWindow& window) {
         prev_holding = curr_holding;
@@ -121,13 +127,20 @@ struct BoardState {
                         piece.setDragged(true);
 
                         // holding_moves.clear();
-                        for (const auto move : possible_moves) {
+
+                        if (inflight_moves.empty()) for (const auto& move : possible_moves) {
+                            move.prettyPrint();
+                            if (move.positions[0].x == x and move.positions[0].y == y) {
+                                holding_moves.push_back(move);
+                            }
+                        }
+                        else for (const auto& move : inflight_moves) {
                             if (move.positions[0].x == x and move.positions[0].y == y) {
                                 holding_moves.push_back(move);
                             }
                         }
 
-                        return;
+                        return; // break the double loops
                     }
                 }
             }
@@ -149,11 +162,47 @@ struct BoardState {
             dragging->setDragged(false);
             dragging = nullptr;
 
-            // if (x == holding_x and y == holding_y) return;
+            if (x == holding_x and y == holding_y) return holding_moves.clear(); // good so far
 
-            std::clog << "X: " << x << ", Y: " << y << "\nMoves:\n";
+
+
+            if (not inflight_moves.empty()) { // if in the middle of a move
+                const auto move_iter = std::ranges::find_if(inflight_moves, [x, y] (const Move& move) {
+                    return move.positions[1].x == x and move.positions[1].y == y;
+                });
+
+                if (move_iter == inflight_moves.cend()) return holding_moves.clear();
+
+
+                get({x, y}) = get({holding_x, holding_y});
+                get({holding_x, holding_y}).reset();
+
+                if (y == 0 or y == 7) get({x, y}).promote(); //! be wary!! should change turns
+
+
+                get(move_iter->captures[0].pos).reset();
+
+                if (move_iter->positions.size() == 2) {
+                    inflight_moves.clear();
+                    holding_moves.clear();
+                    nextTurn();
+                    generateMoves();
+                    return;
+                }
+
+                std::erase_if(inflight_moves, [x, y] (const Move& move) { return move.positions[1].x != x or move.positions[1].y != y; });
+
+                for (auto& move : inflight_moves) {
+                    move.positions.pop_front();
+                    move.captures .pop_front();
+                }
+
+                holding_moves.clear();
+                return;
+            }
+
+            // find the move the player "chose"
             const auto move_iter = std::ranges::find_if(holding_moves, [x, y] (const Move& move) {
-                std::clog << move.positions[1].x << ", " << move.positions[1].y << '\n';
                 return move.positions[1].x == x and move.positions[1].y == y;
             });
 
@@ -164,27 +213,40 @@ struct BoardState {
             get({x, y}) = get({holding_x, holding_y});
             get({holding_x, holding_y}).reset();
 
-            if (y == 0 or y == 7) get({x, y}).promote();
+            if (y == 0 or y == 7) get({x, y}).promote(); //! be wary
 
 
-
-            if (move_iter->doesCapture()) get(move_iter->captures[0]).reset(); // reset captured piece!
+            if (move_iter->doesCapture()) get(move_iter->captures[0].pos).reset(); // reset captured piece!
 
             // positions = [from -> to]. we're done here
-            if (move_iter->positions.size() == 2) nextTurn();
+            if (move_iter->positions.size() == 2) {
+                holding_moves.clear();
+                nextTurn();
+                generateMoves();
+                return;
+            }
+
+
+            // we should make an the inflight moves list
+            for (auto& move : holding_moves) {
+                if (move.positions[1].x == x and move.positions[1].y == y) {
+                    move.positions.pop_front();
+                    move.captures .pop_front();
+                    inflight_moves.push_back(move);
+                }
+            }
 
             holding_moves.clear();
-
-            generateMoves();
         }
     }
 
 
-    std::span<Move> update(sf::RenderWindow& window) {
+
+    std::pair<std::span<Move>, std::span<Move>> update(sf::RenderWindow& window) {
         checkPressed(window);
         checkReleased(window);
 
-        return holding_moves;
+        return {possible_moves, holding_moves};
     }
 
 
@@ -219,7 +281,7 @@ struct BoardState {
     }
 
 
-    std::vector<Move> generateManCaptureMoves(const Piece piece, const Position pos) {
+    std::vector<Move> generatePawnCaptureMoves(const Piece piece, const Position pos) {
         const auto forward = currentForward();
 
         std::vector<Move> moves;
@@ -238,14 +300,14 @@ struct BoardState {
 
 
               simulateCapture(piece,                 pos, capture_pos, landing_pos);
-            const auto continuations = generateManCaptureMoves(piece,  landing_pos);
+            const auto continuations = generatePawnCaptureMoves(piece,  landing_pos);
             unsimulateCapture(piece, captured_piece, pos, capture_pos, landing_pos);
 
             if (continuations.empty()) {
-                moves.push_back({{pos, landing_pos}, {capture_pos, }});
+                moves.push_back({{pos, landing_pos}, {{captured_piece, capture_pos}, }});
             }
             else for (const auto& cont : continuations) {
-                Move move{{pos, /* landing_pos */ }, {capture_pos, }};
+                Move move{{pos, /* landing_pos */ }, {{captured_piece, capture_pos}, }};
                 for (const auto& position : cont.positions) {
                     move.positions.push_back(position);
                 }
@@ -264,7 +326,7 @@ struct BoardState {
     }
 
 
-    std::vector<Move> generateManMoves(const Piece piece, const Position pos) {
+    std::vector<Move> generatePawnMoves(const Piece piece, const Position pos) {
         const auto forward = currentForward();
 
         std::vector<Move> moves;
@@ -278,7 +340,7 @@ struct BoardState {
                 moves.push_back({{pos, landing_pos}});
             }
             else if (landing_piece.isYellow() != yellowTurn()) { // landing piece is an opponent piece
-                auto capture_moves = generateManCaptureMoves(piece, pos);
+                auto capture_moves = generatePawnCaptureMoves(piece, pos);
                 moves.insert_range(moves.cend(), std::move(capture_moves));
             }
         }
@@ -327,10 +389,10 @@ struct BoardState {
 
 
                         if (continuations.empty()) {
-                            moves.push_back({{pos, landing_pos}, {capture_pos, }});
+                            moves.push_back({{pos, landing_pos}, {{captured_piece, capture_pos}, }});
                         }
                         else for (const auto& cont : continuations) {
-                            Move move{{pos, /* landing_pos */ }, {capture_pos, }};
+                            Move move{{pos, /* landing_pos */ }, {{captured_piece, capture_pos}, }};
                             for (const auto& position : cont.positions) {
                                 move.positions.push_back(position);
                             }
@@ -389,6 +451,8 @@ struct BoardState {
     void generateMoves() {
         possible_moves.clear();
 
+        if (not inflight_moves.empty()) return;
+
         for (const auto [y, row] : enumerate(board)) {
             for (const auto [x, piece] : enumerate(row)) {
                 if (not piece.isActive()) continue;
@@ -397,7 +461,7 @@ struct BoardState {
                     possible_moves.insert_range(
                         possible_moves.cend(),
                         piece.isPawn() ?
-                            generateManMoves(piece, {static_cast<int>(x), static_cast<int>(y)})
+                            generatePawnMoves(piece, {static_cast<int>(x), static_cast<int>(y)})
                         : generateShaikhMoves(piece, {static_cast<int>(x), static_cast<int>(y)})
                     );
             }
@@ -410,15 +474,130 @@ struct BoardState {
             // possible_moves.erase(std::remove_if(possible_moves.begin(), possible_moves.end(), [] (const auto& move) { return not move.doesCapture(); }), possible_moves.cend());
             // std::erase_if(std::begin(possible_moves), std::end(possible_moves), )
             const auto max_captures = std::ranges::max_element(possible_moves, [] (const Move& m1, const Move& m2) { return m1.captures.size() < m2.captures.size(); })->captures.size();
-            std::clog << "Max captures: " << max_captures << '\n';
             std::erase_if(possible_moves, [max_captures] (const Move& move) { return move.captures.size() < max_captures; });
         }
+    }
+
+    // AI shit
+
+    int evaluate() const noexcept {
+        int yellow_total{};
+        int black_total{};
+
+        for (const auto& row : board)
+            for (const auto piece : row)
+                if (piece.isYellow())   yellow_total += piece.value();
+                else /* must be black */ black_total += piece.value();
 
 
-        printMoves(possible_moves);
+        const int perspective = blackTurn() ? 1 : -1;
+        return perspective * (black_total - yellow_total);
     }
 
 
+    void makeMove(const Piece piece, const Move& move) noexcept {
+        const auto [x, y] = move.positions.back();
+        get({x, y}) = piece;
+
+        if (y == 7 and not piece.isShaikh()) get({x, y}).promote();
+
+        get(move.positions[0]).reset();
+
+        for (const auto& [_, pos] : move.captures) get(pos).reset();
+
+        nextTurn();
+    }
+
+    void unMakeMove(const Piece piece, const Move& move) noexcept {
+        get(move.positions[0]) = piece;
+        get(move.positions.back()).reset();
+
+        for (const auto& [captured_piece, pos] : move.captures) get(pos) = captured_piece;
+
+        nextTurn();
+    }
+
+
+    int minimax(int depth) {
+        if (not depth) return evaluate();
+
+        // populates the "possible_moves" member
+        generateMoves();
+        if (possible_moves.empty()) return -INF;
+
+
+
+
+        const auto moves = std::move(possible_moves);
+        int best = -INF;
+        for (const auto& move : moves) {
+            const auto piece = get(move.positions[0]);
+            makeMove(piece, move);
+            const int eval = -minimax(depth - 1);
+            unMakeMove(piece, move);
+
+            if (eval > best) best = eval;
+        }
+
+        return best;
+    }
+
+    int alphaBeta(int depth, int alpha = -INF, int beta = INF) {
+        if (depth == 0) return evaluate();
+
+        // populates the "possible_moves" member
+        generateMoves();
+        const auto moves = std::move(possible_moves);
+        if (moves.empty()) return -INF;
+
+
+        for (const auto& move : moves) {
+            const auto piece = get(move.positions[0]);
+            makeMove(piece, move);
+            const int eval = -alphaBeta(depth - 1, -beta, -alpha);
+            unMakeMove(piece, move);
+
+            // if move is too good
+            if (eval >= beta) return beta; // prune the brach!
+            if (eval > alpha) alpha = eval;
+
+        }
+
+        return alpha;
+    }
+
+
+    Move bestMove() {
+        generateMoves(); // populates possible_moves;
+
+        const auto moves = std::move(possible_moves);
+
+        Move best_move;
+        int best_score = std::numeric_limits<int>::min();
+        for (const auto& move : moves) {
+            const auto piece = get(move.positions[0]);
+            makeMove(piece, move);
+            const auto score = -alphaBeta(4);
+            unMakeMove(piece, move);
+
+            if (score >= best_score) {
+                best_score = score;
+                best_move  =  move;
+            }
+        }
+
+        std::clog << "score: " << best_score << '\n';
+        return best_move;
+    }
+
+
+    void play(const Move& move) noexcept {
+        makeMove(get(move.positions[0]), move);
+        generateMoves();
+    }
+
+
+    // 
     void parseFen(const std::string_view fen) noexcept {
         int x = 0;
         int y = 0;
@@ -445,7 +624,7 @@ struct BoardState {
                 case 'b':
                     // pieces[index] = Piece{{x, y}, Piece::Color::BLACK, false};
                     // board[y][x] = Piece{{x, y}, Piece::Color::BLACK, false};
-                    board[y][x] = Piece::Flags::ACTIVE; // active assumed to be black man
+                    board[y][x] = Piece::Flags::ACTIVE; // active assumed to be black pawn
                     ++x;
                     ++index;
                     break;
@@ -472,7 +651,7 @@ struct BoardState {
         std::clog << "==================\n";
 
         for (const auto& row : board) {
-            for (const auto& piece : row) {
+            for (const auto piece : row) {
                 piece.prettyPrint();
             }
             std::clog << '\n';
@@ -484,17 +663,33 @@ struct BoardState {
     static void printMoves(const std::vector<Move>& moves) {
         for (const auto& [idx, move] : enumerate(moves)) {
             std::clog << '[' << idx << "]: ";
-            for (const auto pos : move.positions)
-                std::clog << '{' << pos.x << ", " << pos.y << "} -> ";
-            std::clog << '\n';
-
-            std::clog << "caps: ";
-            for (const auto pos : move.captures)
-                std::clog << '(' << pos.x << ", " << pos.y << ") ,";
-            std::clog << "\n\n";
+            move.prettyPrint();
         }
     }
 
 
+    std::string fen() const {
+        std::string out;
+
+        for (size_t count; const auto& row : board) {
+            count = 0;
+            for (const auto& piece : row) {
+                if (piece) {
+                    if (count) out += std::to_string(count);
+
+                    count = 0;
+                    out += char(piece);
+                }
+                else ++count;
+            }
+
+            if (count) out += std::to_string(count);
+
+            out += '/';
+        }
+
+        out.pop_back();
+        return out;
+    }
 
 };

@@ -9,6 +9,12 @@
 #include "Position.hxx"
 
 
+
+constexpr sf::Color AWAY_COLOR  = {32, 20 ,  0};
+constexpr sf::Color HOME_COLOR  = {204, 126, 0};
+// constexpr sf::Color CROWN_COLOR = 
+
+
 struct Piece {
     // assume black, undragged, pawn if active
     enum Flags : unsigned char {
@@ -32,7 +38,15 @@ struct Piece {
     constexpr Piece& operator=(Piece&&) noexcept = default;
 
 
-    constexpr bool isActive()     const noexcept { return flags & Flags::ACTIVE;      }
+    constexpr bool isActive() const noexcept { return flags & Flags::ACTIVE;      }
+    constexpr operator bool() const noexcept { return isActive(); }
+    constexpr operator char() const noexcept {
+        if (isActive()) {
+            if (isYellow()) return isShaikh() ? 'Y' : 'y';
+            else return isShaikh() ? 'B' : 'b';
+        }
+        else return ' ';
+    }
 
     // should probably add a isActive check but for now we're gonna assume it is!
     constexpr bool isYellow()     const noexcept { return flags & Flags::YELLOW;      }
@@ -55,7 +69,8 @@ struct Piece {
         const float radius = winsize.x / 20; // / 10 / 2
 
         sf::CircleShape circle{radius};
-        circle.setFillColor(isBlack() ? sf::Color{32, 20, 0} : sf::Color{204, 126, 0});
+        //  32, 20, 0
+        circle.setFillColor(isYellow() ? HOME_COLOR : AWAY_COLOR);
         circle.setOrigin({radius, radius});
 
 
@@ -149,5 +164,18 @@ struct Piece {
     constexpr friend Flags operator~(const Flags f) noexcept {
         return static_cast<Flags>((~static_cast<std::underlying_type_t<Piece::Flags>>(f)) & 0b1111);
     }
+
+
+    enum class Value {
+        INACTIVE = 0,
+        PAWN = 10,
+        SHAIKH = 50,
+    };
+
+    constexpr int value() const noexcept {
+        if (not isActive()) return static_cast<int>(Value::INACTIVE);
+        return static_cast<int>(isShaikh() ? Value::SHAIKH : Value::PAWN);
+    }
+
 };
 
