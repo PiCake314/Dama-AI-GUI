@@ -3,6 +3,7 @@ project(CMakeSFMLProject LANGUAGES CXX)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+
 include(FetchContent)
 FetchContent_Declare(SFML
     GIT_REPOSITORY https://github.com/SFML/SFML.git
@@ -15,6 +16,18 @@ FetchContent_MakeAvailable(SFML)
 add_executable(dama src/main.cc)
 target_compile_features(dama PRIVATE cxx_std_23)
 target_link_libraries(dama PRIVATE SFML::Graphics)
+target_link_libraries(dama PRIVATE SFML::Audio)
+
+target_compile_options(dama PRIVATE -Wall)
+target_compile_options(dama PRIVATE -Wextra)
+target_compile_options(dama PRIVATE -Weverything)
+target_compile_options(dama PRIVATE -pedantic)
+target_compile_options(dama PRIVATE -Wno-c++98-compat)
+target_compile_options(dama PRIVATE -Wno-c++98-c++11-compat-binary-literal)
+target_compile_options(dama PRIVATE -Wno-c++98-compat-pedantic)
+target_compile_options(dama PRIVATE -Wno-shadow-uncaptured-local)
+target_compile_options(dama PRIVATE -Wno-c++20-compat)
+target_compile_options(dama PRIVATE -Wno-missing-field-initializers)
 
 set_target_properties(dama PROPERTIES
   OUTPUT_NAME "Dama AI"

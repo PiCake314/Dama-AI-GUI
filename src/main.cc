@@ -9,6 +9,7 @@
 #include "Move.hxx"
 #include "helper.hxx"
 
+
 using std::chrono::operator""s;
 
 /* Colors!
@@ -26,15 +27,18 @@ Capture blink
 */
 
 
-constexpr sf::Color DARK_COLOR =  {107, 77, 64};
-constexpr sf::Color LIGHT_COLOR = {240, 201, 152};
+constexpr sf::Color DARK_TILE       = {107, 77 , 64 };
+constexpr sf::Color LIGHT_TILE      = {240, 201, 152};
+
+constexpr sf::Color DARK_HIGHLIGHT  = {53 , 181, 87 };
+constexpr sf::Color LIGHT_HIGHLIGHT = {71 , 173, 98 };
 
 
-static const sf::Font font{"src/assets/Roboto-Regular.ttf"};
+[[clang::no_destroy]] static const sf::Font font{FONTS_PATH "Roboto-Regular.ttf"};
 
 constexpr auto BLINKING_TIME = 0.5s;
 
-void highlight(
+static void highlight(
     sf::RenderWindow& window,
     const std::span<Move> moves, const std::span<Move> highlights,
     sf::RectangleShape& block  , const sf::Vector2f block_size
@@ -53,7 +57,7 @@ void highlight(
 
             for (size_t step{1}; const auto [x, y] : move.positions | std::views::drop(1)) {
                 block.setPosition({x * block_size.x, y * block_size.y});
-                block.setFillColor((x + y) % 2 ? sf::Color{53, 181, 87} : sf::Color{71, 173, 98});
+                block.setFillColor((x + y) % 2 ? DARK_HIGHLIGHT : LIGHT_HIGHLIGHT);
                 window.draw(block);
 
 
@@ -81,9 +85,7 @@ void highlight(
 
                 auto [x, y] = move.positions[0];
                 block.setPosition({x * block_size.x, y * block_size.y});
-                // (x + y) % 2 ? sf::Color{53, 181, 87} : sf::Color{71, 173, 98}
-                // block.setFillColor({255, 104, 26}); // {}
-                block.setFillColor((x + y) % 2 ? sf::Color{53, 181, 87} : sf::Color{71, 173, 98});
+                block.setFillColor((x + y) % 2 ? DARK_HIGHLIGHT : LIGHT_HIGHLIGHT);
                 window.draw(block);
             }
         }
@@ -93,7 +95,7 @@ void highlight(
 }
 
 
-void numbering(sf::RenderWindow& window, const int x, const int y, const sf::Vector2f block_size) {
+static void numbering(sf::RenderWindow& window, const int x, const int y, const sf::Vector2f block_size) {
     sf::Text text{font};
     text.setCharacterSize(18);
 
@@ -122,7 +124,8 @@ void numbering(sf::RenderWindow& window, const int x, const int y, const sf::Vec
     }
 }
 
-void background(sf::RenderWindow& window, const std::span<Move> moves, const std::span<Move> highlights) {
+
+static void background(sf::RenderWindow& window, const std::span<Move> moves, const std::span<Move> highlights) {
     const auto winsize = window.getSize();
     // std::clog << "windo size - x: " << winsize.x << ", y: " << winsize.y << '\n';
 
@@ -139,7 +142,7 @@ void background(sf::RenderWindow& window, const std::span<Move> moves, const std
         for (auto x : range(8)) {
             block.setPosition({x * block_size.x, y * block_size.y});
             //  : sf::Color
-            block.setFillColor(flag ? LIGHT_COLOR : DARK_COLOR);
+            block.setFillColor(flag ? LIGHT_TILE : DARK_TILE);
 
             window.draw(block);
 
@@ -160,7 +163,7 @@ void background(sf::RenderWindow& window, const std::span<Move> moves, const std
 }
 
 
-void winningText(sf::RenderWindow& window, const std::string_view t) {
+static void winningText(sf::RenderWindow& window, const std::string_view t) {
     sf::Text text{font};
     text.setString(t.data());
     text.setCharacterSize(64);
@@ -175,22 +178,23 @@ void winningText(sf::RenderWindow& window, const std::string_view t) {
     window.draw(text);
 }
 
-int main() {
+
+int main() {;
     using std::operator""sv;
 
     auto window = sf::RenderWindow(sf::VideoMode({720uz, 720uz}), "Dama AI", sf::Style::Close);
 
-    sf::Image icon{"src/assets/icon2.png"};
+    sf::Image icon{IMAGES_PATH "icon2.png"};
     window.setIcon(icon);
 
     window.setFramerateLimit(144);
 
 
     BoardState board;
-    // board = BoardState{"2B5/6b1/8/6b1/6y1/8/8/8"sv, true};
-    board = BoardState{"Y4Y1Y/8/1bbbbbbb/1bbb3b/1b4b1/4b3/2yyyyyy/8"sv, true};
-    // board = BoardState{"8/8/8/3b4/5b2/8/yb1b1Y2/8"sv, true};
-    // board = BoardState{"8/6b1/5b2/3b4/5b2/8/yb1b1Y2/8"sv, true};
+    // board = BoardState{"5B2/6b1/8/6b1/6y1/8/8/8"sv, true}; // TEST: move generation stops at promotion
+    // board = BoardState{"8/8/8/3b4/5b2/8/yb1b1Y2/8"sv, true};  // TEST: picks longest move (without switching pieces mid move)
+    // board = BoardState{"8/6b1/5b2/3b4/5b2/8/yb1b1Y2/8"sv, true}; // multiple inflight moves
+    board = BoardState{"Y4Y1Y/8/1bbbbbbb/1bbb3b/1b4b1/4b3/2yyyyyy/8"sv, true}; // cool position it wins at
 
     std::span<Move> moves, highlights;
 
@@ -232,3 +236,4 @@ int main() {
         window.display();
     }
 }
+

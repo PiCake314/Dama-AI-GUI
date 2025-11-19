@@ -43,15 +43,14 @@ public:
     constexpr const auto& back() const noexcept { return array[_size - 1]; }
 
     constexpr auto begin() noexcept { return array; }
-    constexpr auto end() noexcept { return std::next(array, _size); }
+    constexpr auto end() noexcept { return std::next(array, std::ptrdiff_t(_size)); }
     constexpr auto begin() const noexcept { return cbegin(); }
     constexpr auto end() const noexcept { return cend(); }
-
     constexpr auto cbegin() const noexcept { return array; }
-    constexpr auto cend() const noexcept { return std::next(array, _size); }
+    constexpr auto cend() const noexcept { return std::next(array, std::ptrdiff_t(_size)); }
 };
 
-struct CapturedPiece { Piece piece; Position pos; };
+struct CapturedPiece { Piece piece; /* char padding[7]; */ Position pos; }; // 16 bytes. could 12 be better?
 
 struct Move {
     static_vector<Position, 16> positions;

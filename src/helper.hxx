@@ -4,8 +4,11 @@
 #include <ranges>
 #include <concepts>
 
-constexpr auto range(std::integral auto limit) { return std::views::iota(0, limit); }
-constexpr auto range(std::integral auto start, std::integral auto limit) { return std::views::iota(start, limit); }
+template <std::integral T>
+constexpr auto range(T limit) { return std::views::iota(T(0), limit); }
+
+template <std::integral T>
+constexpr auto range(T start, std::type_identity_t<T> limit) { return std::views::iota(start, limit); }
 
 
 template <typename T,
@@ -21,11 +24,13 @@ constexpr auto enumerate(T && iterable)
         void operator ++ () { ++i; ++iter; }
         auto operator * () const { return std::tie(i, *iter); }
     };
+
     struct iterable_wrapper
     {
         T iterable;
         auto begin() { return iterator{ 0, std::begin(iterable) }; }
         auto end() { return iterator{ 0, std::end(iterable) }; }
     };
+
     return iterable_wrapper{ std::forward<T>(iterable) };
 }

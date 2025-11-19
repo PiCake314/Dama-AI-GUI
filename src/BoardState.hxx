@@ -12,10 +12,13 @@
 #include <limits>
 
 #include <SFML/Graphics.hpp>
+#include <SFML/Audio.hpp>
+
 
 #include "Piece.hxx"
 #include "Move.hxx"
 #include "helper.hxx"
+
 
 constexpr auto INF = 100000;
 
@@ -23,8 +26,8 @@ constexpr auto INF = 100000;
 consteval auto precomputeData(){
     std::array<std::array<std::array<static_vector<Position, 8>, 4>, 8>, 8> data{};
 
-    for(int i = 0; i < 8; ++i){
-        for(int j = 0; j < 8; ++j){
+    for(const auto i : range(8uz)){
+        for(const auto j : range(8uz)){
             const auto num_north = i;
             const auto num_east  = 8 - j - 1;
             const auto num_south = 8 - i - 1;
@@ -96,8 +99,8 @@ struct BoardState {
     bool blackTurn()  const noexcept { return turn == BLACK_TURN;  }
     void nextTurn() noexcept { turn =! turn; }
     auto currentForward() const noexcept { return yellowTurn() ? YELLOW_FORWARD : BLACK_FORWARD; }
-          auto& get(const Position pos)       noexcept { return board[pos.y][pos.x]; }
-    const auto& get(const Position pos) const noexcept { return board[pos.y][pos.x]; }
+          auto& get(const Position pos)       noexcept { return board[size_t(pos.y)][size_t(pos.x)]; }
+    const auto& get(const Position pos) const noexcept { return board[size_t(pos.y)][size_t(pos.x)]; }
 
     bool prev_holding = false;
     bool curr_holding = false;
@@ -122,20 +125,20 @@ struct BoardState {
                     const auto shape = piece.getShape(window, {static_cast<float>(x), static_cast<float>(y)});
                     if (shape.getGlobalBounds().contains({static_cast<float>(mouse_x), static_cast<float>(mouse_y)})) {
                         dragging = &piece;
-                        holding_x = x;
-                        holding_y = y;
+                        holding_x = static_cast<int>(x);
+                        holding_y = static_cast<int>(y);
                         piece.setDragged(true);
 
                         // holding_moves.clear();
 
                         if (inflight_moves.empty()) for (const auto& move : possible_moves) {
                             move.prettyPrint();
-                            if (move.positions[0].x == x and move.positions[0].y == y) {
+                            if (move.positions[0].x == static_cast<int>(x) and move.positions[0].y == static_cast<int>(y)) {
                                 holding_moves.push_back(move);
                             }
                         }
                         else for (const auto& move : inflight_moves) {
-                            if (move.positions[0].x == x and move.positions[0].y == y) {
+                            if (move.positions[0].x == static_cast<int>(x) and move.positions[0].y == static_cast<int>(y)) {
                                 holding_moves.push_back(move);
                             }
                         }
@@ -149,6 +152,8 @@ struct BoardState {
 
 
     void checkReleased(sf::RenderWindow& window) {
+        SoundFX sound_fx = SoundFX::MOVE; // default
+
         if (dragging and not sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
 
             const auto [mouse_x, mouse_y] = sf::Mouse::getPosition(window);
@@ -156,17 +161,58 @@ struct BoardState {
             const auto [width, height] = window.getSize();
             const float block_size = width / 8;
 
-            const int x = mouse_x / block_size;
-            const int y = mouse_y / block_size;
+            const int x = int(mouse_x / block_size);
+            const int y = int(mouse_y / block_size);
 
             dragging->setDragged(false);
             dragging = nullptr;
 
-            if (x == holding_x and y == holding_y) return holding_moves.clear(); // good so far
+            if (x == holding_x and y == holding_y) return holding_moves.clear();
 
 
+            if (inflight_moves.empty()) {
+                // find the move the player "chose"
+                const auto move_iter = std::ranges::find_if(holding_moves, [x, y] (const Move& move) {
+                    return move.positions[1].x == x and move.positions[1].y == y;
+                });
 
-            if (not inflight_moves.empty()) { // if in the middle of a move
+                if (move_iter == holding_moves.cend()) return holding_moves.clear();
+
+
+                get({x, y}) = get({holding_x, holding_y});
+                get({holding_x, holding_y}).reset();
+
+                if (not get({x, y}).isShaikh() and  (y == 0 or y == 7)) {
+                    get({x, y}).promote();
+                    sound_fx = SoundFX::PROMOTE;
+                }
+
+
+                if (move_iter->doesCapture()) {
+                    get(move_iter->captures[0].pos).reset();
+
+                    if (sound_fx != SoundFX::PROMOTE) sound_fx = SoundFX::CAPTURE;
+                }
+
+                // positions = [from -> to]. we're done here
+                if (move_iter->positions.size() == 2) {
+                    holding_moves.clear();
+                    nextTurn();
+                    generateMoves();
+                }
+
+                // we should make an the inflight moves list
+                else for (auto& move : holding_moves) {
+                    if (move.positions[1].x == x and move.positions[1].y == y) {
+                        move.positions.pop_front();
+                        move.captures .pop_front();
+                        inflight_moves.push_back(move);
+                    }
+
+                    possible_moves = inflight_moves;
+                }
+            }
+            else { // move is inflight
                 const auto move_iter = std::ranges::find_if(inflight_moves, [x, y] (const Move& move) {
                     return move.positions[1].x == x and move.positions[1].y == y;
                 });
@@ -177,8 +223,13 @@ struct BoardState {
                 get({x, y}) = get({holding_x, holding_y});
                 get({holding_x, holding_y}).reset();
 
-                if (y == 0 or y == 7) get({x, y}).promote(); //! be wary!! should change turns
+                if (not get({x, y}).isShaikh() and  (y == 0 or y == 7)) {
+                    get({x, y}).promote();
+                    sound_fx = SoundFX::PROMOTE;
+                }
 
+                // this must be a capturing move since we're during an inflight move
+                if (sound_fx != SoundFX::PROMOTE) sound_fx = SoundFX::CAPTURE;
 
                 get(move_iter->captures[0].pos).reset();
 
@@ -197,45 +248,11 @@ struct BoardState {
                     move.captures .pop_front();
                 }
 
-                holding_moves.clear();
-                return;
-            }
-
-            // find the move the player "chose"
-            const auto move_iter = std::ranges::find_if(holding_moves, [x, y] (const Move& move) {
-                return move.positions[1].x == x and move.positions[1].y == y;
-            });
-
-            if (move_iter == holding_moves.cend()) return holding_moves.clear();
-
-
-
-            get({x, y}) = get({holding_x, holding_y});
-            get({holding_x, holding_y}).reset();
-
-            if (y == 0 or y == 7) get({x, y}).promote(); //! be wary
-
-
-            if (move_iter->doesCapture()) get(move_iter->captures[0].pos).reset(); // reset captured piece!
-
-            // positions = [from -> to]. we're done here
-            if (move_iter->positions.size() == 2) {
-                holding_moves.clear();
-                nextTurn();
-                generateMoves();
-                return;
+                possible_moves = inflight_moves;
             }
 
 
-            // we should make an the inflight moves list
-            for (auto& move : holding_moves) {
-                if (move.positions[1].x == x and move.positions[1].y == y) {
-                    move.positions.pop_front();
-                    move.captures .pop_front();
-                    inflight_moves.push_back(move);
-                }
-            }
-
+            play(sound_fx);
             holding_moves.clear();
         }
     }
@@ -282,43 +299,45 @@ struct BoardState {
 
 
     std::vector<Move> generatePawnCaptureMoves(const Piece piece, const Position pos) {
-        const auto forward = currentForward();
-
         std::vector<Move> moves;
-        for(const auto direction : {forward, RIGHT, LEFT}) {
-            const auto capture_pos = pos + direction;
-            const auto captured_piece = get(capture_pos); 
-            const auto landing_pos = capture_pos + direction;
+
+        if (pos.y != 0 and pos.y != 7) {
+            const auto forward = currentForward();
+
+            for(const auto direction : {forward, RIGHT, LEFT}) {
+                const auto capture_pos = pos + direction;
+                const auto captured_piece = get(capture_pos); 
+                const auto landing_pos = capture_pos + direction;
 
 
-            if (
-                   not isValidPosition(landing_pos) // outside the board
-                or not captured_piece.isActive()    // not capturing a piece
-                or   get(landing_pos).isActive()    // landing at an occupied position
-                or     captured_piece.isYellow() == yellowTurn() // captured piece is not the opponent's
-            ) continue;
+                if (
+                       not isValidPosition(landing_pos)              // outside the board
+                    or not captured_piece.isActive()                 // not capturing a piece
+                    or   get(landing_pos).isActive()                 // landing at an occupied position
+                    or     captured_piece.isYellow() == yellowTurn() // captured piece is not the opponent's
+                ) continue;
 
 
-              simulateCapture(piece,                 pos, capture_pos, landing_pos);
-            const auto continuations = generatePawnCaptureMoves(piece,  landing_pos);
-            unsimulateCapture(piece, captured_piece, pos, capture_pos, landing_pos);
+                  simulateCapture(piece,                 pos, capture_pos, landing_pos);
+                const auto continuations = generatePawnCaptureMoves(piece,  landing_pos);
+                unsimulateCapture(piece, captured_piece, pos, capture_pos, landing_pos);
 
-            if (continuations.empty()) {
-                moves.push_back({{pos, landing_pos}, {{captured_piece, capture_pos}, }});
-            }
-            else for (const auto& cont : continuations) {
-                Move move{{pos, /* landing_pos */ }, {{captured_piece, capture_pos}, }};
-                for (const auto& position : cont.positions) {
-                    move.positions.push_back(position);
+                if (continuations.empty()) {
+                    moves.push_back({{pos, landing_pos}, {{captured_piece, capture_pos}, }});
                 }
+                else for (const auto& cont : continuations) {
+                    Move move{{pos, /* landing_pos */ }, {{captured_piece, capture_pos}, }};
+                    for (const auto& position : cont.positions) {
+                        move.positions.push_back(position);
+                    }
 
-                for (const auto& capture : cont.captures) {
-                    move.captures.push_back(capture);
+                    for (const auto& capture : cont.captures) {
+                        move.captures.push_back(capture);
+                    }
+
+                    moves.push_back(move);
                 }
-
-                moves.push_back(move);
             }
-
         }
 
 
@@ -349,16 +368,16 @@ struct BoardState {
     }
 
 
-    std::vector<Move> generateShaikhCaptureMoves(const Piece piece, const Position pos, const int forbidden_direction) {
+    std::vector<Move> generateShaikhCaptureMoves(const Piece piece, const Position pos, const size_t forbidden_direction) {
         std::vector<Move> moves;
 
 
-        for (const auto direction_idx : range(4)) {
+        for (const auto direction_idx : range(4uz)) {
             if (direction_idx == forbidden_direction) continue;
 
             Position capture_pos;
             Piece captured_piece;
-            for(int count{}; const auto distance : DATA_ARRAY[pos.y][pos.x][direction_idx]) {
+            for(int count{}; const auto distance : DATA_ARRAY[size_t(pos.y)][size_t(pos.x)][direction_idx]) {
                 const auto landing_pos = pos + distance;
 
                 const auto landing_piece = get(landing_pos);
@@ -415,10 +434,10 @@ struct BoardState {
     std::vector<Move> generateShaikhMoves(const Piece piece, const Position pos) {
         std::vector<Move> moves;
 
-        for (const auto direction_idx : range(4)) {
+        for (const auto direction_idx : range(4uz)) {
 
                 // counting opponent's pieces across a certain direction. 
-            for (int count{}; const auto distance : DATA_ARRAY[pos.y][pos.x][direction_idx]) {
+            for (size_t count{}; const auto distance : DATA_ARRAY[size_t(pos.y)][size_t(pos.x)][direction_idx]) {
                 const auto landing_pos = pos + distance;
 
                 const auto landing_piece = get(landing_pos);
@@ -499,7 +518,7 @@ struct BoardState {
         const auto [x, y] = move.positions.back();
         get({x, y}) = piece;
 
-        if (y == 7 and not piece.isShaikh()) get({x, y}).promote();
+        if (y == 7 /* and not piece.isShaikh() */) get({x, y}).promote();
 
         get(move.positions[0]).reset();
 
@@ -593,18 +612,14 @@ struct BoardState {
 
     void play(const Move& move) noexcept {
         makeMove(get(move.positions[0]), move);
+        play(SoundFX::MOVE); // AI will always play the move sound
         generateMoves();
     }
 
 
     // 
     void parseFen(const std::string_view fen) noexcept {
-        int x = 0;
-        int y = 0;
-
-        size_t index{};
-
-        for(char c : fen){
+        for(size_t x{}, y{}; char c : fen){
             switch(c){
                 case 'y':
                     // pieces[index] = Piece{{x, y}, Piece::Color::YELLOW, false};
@@ -612,36 +627,31 @@ struct BoardState {
                     board[y][x] = Piece::Flags::ACTIVE | Piece::Flags::YELLOW;
 
                     ++x;
-                    ++index;
                     break;
                 case 'Y':
                     // pieces[index] = Piece{{x, y}, Piece::Color::YELLOW, true};
                     // board[y][x] = Piece{{x, y}, Piece::Color::YELLOW, true};
                     board[y][x] = Piece::Flags::ACTIVE | Piece::Flags::YELLOW | Piece::Flags::SHAIKH;
                     ++x;
-                    ++index;
                     break;
                 case 'b':
                     // pieces[index] = Piece{{x, y}, Piece::Color::BLACK, false};
                     // board[y][x] = Piece{{x, y}, Piece::Color::BLACK, false};
                     board[y][x] = Piece::Flags::ACTIVE; // active assumed to be black pawn
                     ++x;
-                    ++index;
                     break;
                 case 'B':
                     // pieces[index] = Piece{{x, y}, Piece::Color::BLACK, true};
                     // board[y][x] = Piece{{x, y}, Piece::Color::BLACK, true};
                     board[y][x] = Piece::Flags::ACTIVE | Piece::Flags::SHAIKH;
                     ++x;
-                    ++index;
                     break;
                 case '/':
                     ++y;
                     x = 0;
                     break;
                 default:
-                    int num = c - '0';
-                    x += num;
+                    x += size_t(c - '0');
                     break;
             }
         }
@@ -661,7 +671,7 @@ struct BoardState {
     }
 
     static void printMoves(const std::vector<Move>& moves) {
-        for (const auto& [idx, move] : enumerate(moves)) {
+        for (auto&& [idx, move] : enumerate(moves)) {
             std::clog << '[' << idx << "]: ";
             move.prettyPrint();
         }
@@ -692,4 +702,24 @@ struct BoardState {
         return out;
     }
 
+
+    enum class SoundFX { MOVE, CAPTURE, PROMOTE };
+
+    static void play(SoundFX fx) {
+        switch (fx) {
+            case SoundFX::MOVE:    return MOVE_SFX   .play();
+            case SoundFX::CAPTURE: return CAPTURE_SFX.play();
+            case SoundFX::PROMOTE: return PROMOTE_SFX.play();
+        }
+    }
+
+
+    [[clang::no_destroy]] const static inline sf::SoundBuffer    MOVE_BUFFER{SOUNDS_PATH "move.wav"   };
+    [[clang::no_destroy]] const static inline sf::SoundBuffer CAPTURE_BUFFER{SOUNDS_PATH "capture.wav"};
+    [[clang::no_destroy]] const static inline sf::SoundBuffer PROMOTE_BUFFER{SOUNDS_PATH "check.wav"  };
+
+    // method ".play()" is non-const
+    [[clang::no_destroy]] static inline sf::Sound    MOVE_SFX{MOVE_BUFFER   };
+    [[clang::no_destroy]] static inline sf::Sound CAPTURE_SFX{CAPTURE_BUFFER};
+    [[clang::no_destroy]] static inline sf::Sound PROMOTE_SFX{PROMOTE_BUFFER};
 };

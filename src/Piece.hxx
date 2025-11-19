@@ -9,6 +9,11 @@
 #include "Position.hxx"
 
 
+#define ASSETS_PATH "src/assets/"
+#define  FONTS_PATH ASSETS_PATH "fonts/"
+#define IMAGES_PATH ASSETS_PATH "images/"
+#define SOUNDS_PATH ASSETS_PATH "sfx/"
+
 
 constexpr sf::Color AWAY_COLOR  = {32, 20 ,  0};
 constexpr sf::Color HOME_COLOR  = {204, 126, 0};
@@ -17,14 +22,14 @@ constexpr sf::Color HOME_COLOR  = {204, 126, 0};
 
 struct Piece {
     // assume black, undragged, pawn if active
-    enum Flags : unsigned char {
+    enum class Flags : unsigned char {
         NONE        = 0b0000,
 
         ACTIVE      = 0b1000,
         YELLOW      = 0b0001,
         SHAIKH      = 0b0010,
         DRAGGED     = 0b0100,
-    } flags : 4 = Flags::NONE;
+    } flags = Flags::NONE; // removed bit field `: 4`
 
 
     constexpr Piece(Flags f) noexcept : flags{f} {}
@@ -38,22 +43,15 @@ struct Piece {
     constexpr Piece& operator=(Piece&&) noexcept = default;
 
 
-    constexpr bool isActive() const noexcept { return flags & Flags::ACTIVE;      }
+    constexpr bool isActive() const noexcept { return static_cast<bool>(flags & Flags::ACTIVE); }
     constexpr operator bool() const noexcept { return isActive(); }
-    constexpr operator char() const noexcept {
-        if (isActive()) {
-            if (isYellow()) return isShaikh() ? 'Y' : 'y';
-            else return isShaikh() ? 'B' : 'b';
-        }
-        else return ' ';
-    }
 
     // should probably add a isActive check but for now we're gonna assume it is!
-    constexpr bool isYellow()     const noexcept { return flags & Flags::YELLOW;      }
-    constexpr bool isBlack()      const noexcept { return not isYellow();             }
-    constexpr bool isPawn()       const noexcept { return not isShaikh();             }
-    constexpr bool isShaikh()     const noexcept { return flags & Flags::SHAIKH;      }
-    constexpr bool isDragged()    const noexcept { return flags & Flags::DRAGGED;     }
+    constexpr bool isYellow()     const noexcept { return static_cast<bool>(flags & Flags::YELLOW);  }
+    constexpr bool isBlack()      const noexcept { return not isYellow();                            }
+    constexpr bool isPawn()       const noexcept { return not isShaikh();                            }
+    constexpr bool isShaikh()     const noexcept { return static_cast<bool>(flags & Flags::SHAIKH);  }
+    constexpr bool isDragged()    const noexcept { return static_cast<bool>(flags & Flags::DRAGGED); }
 
     constexpr void promote() noexcept { flags = flags | Flags::SHAIKH; }
     constexpr void reset() noexcept { flags = Flags::NONE; }
@@ -111,16 +109,23 @@ struct Piece {
 
 
     // Crown can be static but not circle is because circle technically depends on the size of the window!
-    const static inline sf::Texture CROWN_IMAGE{"src/assets/crown_brown.png", false, sf::IntRect{{0, 0}, {512, 512}}};
+    [[clang::no_destroy]] const static inline sf::Texture CROWN_IMAGE{IMAGES_PATH "crown_brown.png", false, sf::IntRect{{0, 0}, {512, 512}}};
     static inline sf::Sprite crown = [] {
         sf::Sprite crown{CROWN_IMAGE};
         crown.setOrigin({256, 256});
-        crown.setScale({.1, .1});
+        crown.setScale({.1f, .1f});
         return crown;
     }();
 
 
 
+    // constexpr operator char() const noexcept {
+    //     if (isActive()) {
+    //         if (isYellow()) return isShaikh() ? 'Y' : 'y';
+    //         else return isShaikh() ? 'B' : 'b';
+    //     }
+    //     else return ' ';
+    // }
 
     void prettyPrint() const {
         if (not isActive()) {
@@ -133,6 +138,7 @@ struct Piece {
             std::clog << (isShaikh() ? 'B' : 'b');
         }
     }
+
 
     constexpr Piece operator&(const Piece f) const noexcept {
         return static_cast<Flags>(static_cast<std::underlying_type_t<Piece::Flags>>(flags) & static_cast<std::underlying_type_t<Piece::Flags>>(f.flags));
@@ -166,15 +172,15 @@ struct Piece {
     }
 
 
-    enum class Value {
-        INACTIVE = 0,
-        PAWN = 10,
-        SHAIKH = 50,
-    };
-
     constexpr int value() const noexcept {
-        if (not isActive()) return static_cast<int>(Value::INACTIVE);
-        return static_cast<int>(isShaikh() ? Value::SHAIKH : Value::PAWN);
+        enum {
+            INACTIVE = 0,
+            PAWN = 10,
+            SHAIKH = 50,
+        };
+
+        if (not isActive()) return static_cast<int>(INACTIVE);
+        return static_cast<int>(isShaikh() ? SHAIKH : PAWN);
     }
 
 };
