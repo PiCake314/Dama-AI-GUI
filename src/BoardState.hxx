@@ -3,13 +3,15 @@
 #include <iostream>
 #include <cmath>
 #include <string_view>
-#include <array>
 #include <vector>
-#include <span>
-#include <utility>
+#include <array>
 #include <algorithm>
-#include <ranges>
+#include <thread>
+#include <chrono>
+#include <span>
 #include <limits>
+#include <ranges>
+#include <utility>
 
 #include <SFML/Graphics.hpp>
 #include <SFML/Audio.hpp>
@@ -65,6 +67,14 @@ struct BoardState {
     bool turn = YELLOW_TURN;
     std::vector<Move> possible_moves;
 
+    bool prev_holding = false;
+    bool curr_holding = false;
+    Piece *dragging = nullptr;
+    int holding_x, holding_y;
+    std::vector<Move> holding_moves;
+    // Move inflight;
+    // std::vector<Move> inflight_moves; // there could be multiple moves in flight!
+    bool inflight = false; // is in the middle of a move?
 
     explicit constexpr BoardState(const std::string_view fen = STARTING_FEN, bool yellow_starts = true) noexcept
     : turn{yellow_starts}
@@ -102,13 +112,6 @@ struct BoardState {
           auto& get(const Position pos)       noexcept { return board[size_t(pos.y)][size_t(pos.x)]; }
     const auto& get(const Position pos) const noexcept { return board[size_t(pos.y)][size_t(pos.x)]; }
 
-    bool prev_holding = false;
-    bool curr_holding = false;
-    Piece *dragging = nullptr;
-    int holding_x, holding_y;
-    std::vector<Move> holding_moves;
-    // Move inflight;
-    std::vector<Move> inflight_moves; // there could be multiple moves in flight!
 
     void checkPressed(sf::RenderWindow& window) {
         prev_holding = curr_holding;
@@ -131,13 +134,13 @@ struct BoardState {
 
                         // holding_moves.clear();
 
-                        if (inflight_moves.empty()) for (const auto& move : possible_moves) {
+                        if (not inflight) for (const auto& move : possible_moves) {
                             move.prettyPrint();
                             if (move.positions[0].x == static_cast<int>(x) and move.positions[0].y == static_cast<int>(y)) {
                                 holding_moves.push_back(move);
                             }
                         }
-                        else for (const auto& move : inflight_moves) {
+                        else for (const auto& move : possible_moves) {
                             if (move.positions[0].x == static_cast<int>(x) and move.positions[0].y == static_cast<int>(y)) {
                                 holding_moves.push_back(move);
                             }
@@ -170,7 +173,7 @@ struct BoardState {
             if (x == holding_x and y == holding_y) return holding_moves.clear();
 
 
-            if (inflight_moves.empty()) {
+            if (not inflight) {
                 // find the move the player "chose"
                 const auto move_iter = std::ranges::find_if(holding_moves, [x, y] (const Move& move) {
                     return move.positions[1].x == x and move.positions[1].y == y;
@@ -200,24 +203,28 @@ struct BoardState {
                     nextTurn();
                     generateMoves();
                 }
+                // we're inflight! let's make an the inflight moves list
+                else {
+                    inflight = true;
 
-                // we should make an the inflight moves list
-                else for (auto& move : holding_moves) {
-                    if (move.positions[1].x == x and move.positions[1].y == y) {
-                        move.positions.pop_front();
-                        move.captures .pop_front();
-                        inflight_moves.push_back(move);
+                    possible_moves.clear();
+                    for (auto& move : holding_moves) {
+                        if (move.positions[1].x == x and move.positions[1].y == y) {
+                            move.positions.pop_front();
+                            move.captures .pop_front();
+                            possible_moves.push_back(move);
+                        }
                     }
 
-                    possible_moves = inflight_moves;
-                }
+                    // possible_moves = inflight_moves;
+                } 
             }
             else { // move is inflight
-                const auto move_iter = std::ranges::find_if(inflight_moves, [x, y] (const Move& move) {
+                const auto move_iter = std::ranges::find_if(possible_moves, [x, y] (const Move& move) {
                     return move.positions[1].x == x and move.positions[1].y == y;
                 });
 
-                if (move_iter == inflight_moves.cend()) return holding_moves.clear();
+                if (move_iter == possible_moves.cend()) return holding_moves.clear();
 
 
                 get({x, y}) = get({holding_x, holding_y});
@@ -234,21 +241,25 @@ struct BoardState {
                 get(move_iter->captures[0].pos).reset();
 
                 if (move_iter->positions.size() == 2) {
-                    inflight_moves.clear();
+                    inflight = false;
+
+                    play(sound_fx);
+                    possible_moves.clear();
                     holding_moves.clear();
                     nextTurn();
                     generateMoves();
                     return;
                 }
 
-                std::erase_if(inflight_moves, [x, y] (const Move& move) { return move.positions[1].x != x or move.positions[1].y != y; });
+                std::erase_if(possible_moves, [x, y] (const Move& move) { return move.positions[1].x != x or move.positions[1].y != y; });
 
-                for (auto& move : inflight_moves) {
+                for (auto& move : possible_moves) {
                     move.positions.pop_front();
                     move.captures .pop_front();
                 }
 
-                possible_moves = inflight_moves;
+                // inflight = not possible_moves.empty();
+                // possible_moves = inflight_moves;
             }
 
 
@@ -259,11 +270,11 @@ struct BoardState {
 
 
 
-    std::pair<std::span<Move>, std::span<Move>> update(sf::RenderWindow& window) {
+    std::tuple<std::span<Move>, std::span<Move>, Move> update(sf::RenderWindow& window) {
         checkPressed(window);
         checkReleased(window);
 
-        return {possible_moves, holding_moves};
+        return {possible_moves, holding_moves, AI_highlighs};
     }
 
 
@@ -470,7 +481,7 @@ struct BoardState {
     void generateMoves() {
         possible_moves.clear();
 
-        if (not inflight_moves.empty()) return;
+        if (inflight) return;
 
         for (const auto [y, row] : enumerate(board)) {
             for (const auto [x, piece] : enumerate(row)) {
@@ -518,7 +529,7 @@ struct BoardState {
         const auto [x, y] = move.positions.back();
         get({x, y}) = piece;
 
-        if (y == 7 /* and not piece.isShaikh() */) get({x, y}).promote();
+        if (y == 7 or y == 0 /* and not piece.isShaikh() */) get({x, y}).promote();
 
         get(move.positions[0]).reset();
 
@@ -610,11 +621,55 @@ struct BoardState {
     }
 
 
+
+    Move AI_highlighs;
+    size_t AI_inflight_idx{};
     void play(const Move& move) noexcept {
-        makeMove(get(move.positions[0]), move);
-        play(SoundFX::MOVE); // AI will always play the move sound
-        generateMoves();
+        SoundFX sfx = SoundFX::MOVE; // default sound anyway!
+
+
+        // push the first move
+        if (AI_inflight_idx == 0) {
+            AI_highlighs.clear(); //?
+
+            AI_highlighs.positions.push_back(move.positions[0]);
+        }
+
+        // moving stuff
+        AI_highlighs.positions.push_back(move.positions[AI_inflight_idx + 1]);
+
+        const auto piece = get(move.positions[AI_inflight_idx]);
+        get(move.positions[AI_inflight_idx]).reset();
+        const auto to = move.positions[AI_inflight_idx + 1];
+        get(to) = piece;
+
+        if (not get(to).isShaikh() and (to.y == 7 or to.y == 0)) {
+            get(to).promote();
+            sfx = SoundFX::PROMOTE;
+        }
+
+        if (move.doesCapture()) {
+            AI_highlighs.captures.push_back(move.captures[AI_inflight_idx]);
+            get(move.captures[AI_inflight_idx].pos).reset();
+
+            if (sfx != SoundFX::PROMOTE) sfx = SoundFX::CAPTURE;
+        }
+        // done moving stuff
+
+        play(sfx);
+        AI_inflight_idx++;
+
+        if (AI_inflight_idx == move.positions.size() - 1) {
+            AI_inflight_idx = 0;
+            nextTurn();
+            generateMoves();
+        }
+
+        // makeMove(get(move.positions[0]), move);
+        // play(SoundFX::MOVE); // AI will always play the move sound
     }
+
+    bool AIInflight() const noexcept { return AI_inflight_idx != 0; }
 
 
     // 

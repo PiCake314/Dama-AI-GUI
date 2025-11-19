@@ -27,56 +27,78 @@ Capture blink
 */
 
 
-constexpr sf::Color DARK_TILE       = {107, 77 , 64 };
+constexpr sf::Color  DARK_TILE      = {107, 77 , 64 };
 constexpr sf::Color LIGHT_TILE      = {240, 201, 152};
 
-constexpr sf::Color DARK_HIGHLIGHT  = {53 , 181, 87 };
+constexpr sf::Color  DARK_HIGHLIGHT = {53 , 181, 87 };
 constexpr sf::Color LIGHT_HIGHLIGHT = {71 , 173, 98 };
+
+constexpr sf::Color   RED_HIGHLIGHT = {189, 60 , 0  };
+constexpr sf::Color  BLUE_HIGHLIGHT = {41 , 74 , 153};
 
 
 [[clang::no_destroy]] static const sf::Font font{FONTS_PATH "Roboto-Regular.ttf"};
 
-constexpr auto BLINKING_TIME = 0.5s;
 
-static void highlight(
-    sf::RenderWindow& window,
-    const std::span<Move> moves, const std::span<Move> highlights,
-    sf::RectangleShape& block  , const sf::Vector2f block_size
-) {
+template <bool AI = false>
+static void highlighMove(sf::RenderWindow& window, const Move& move, sf::RectangleShape& block , const sf::Vector2f block_size) {
+    if (not move) return;
 
-    if (highlights.size()) {
-        sf::Text text{font};
-        text.setCharacterSize(18);
-        for (const auto& move : highlights) {
-            {
-                auto [x, y] = move.positions[0];
-                block.setPosition({x * block_size.x, y * block_size.y});
-                block.setFillColor({189, 60, 0});
-                window.draw(block);
-            }
+    sf::Text text{font, "", 18}; // text.setCharacterSize(18);
 
-            for (size_t step{1}; const auto [x, y] : move.positions | std::views::drop(1)) {
-                block.setPosition({x * block_size.x, y * block_size.y});
-                block.setFillColor((x + y) % 2 ? DARK_HIGHLIGHT : LIGHT_HIGHLIGHT);
-                window.draw(block);
+    const auto [x_start, y_start] = move.positions[0];
+    block.setPosition({x_start * block_size.x, y_start * block_size.y});
+
+    if constexpr (AI) block.setFillColor(BLUE_HIGHLIGHT);
+    else              block.setFillColor( RED_HIGHLIGHT);
+
+    window.draw(block);
+
+    for (size_t step{1}; const auto [x, y] : move.positions | std::views::drop(1)) {
+        block.setPosition({x * block_size.x, y * block_size.y});
+        block.setFillColor((x + y) % 2 ? DARK_HIGHLIGHT : LIGHT_HIGHLIGHT);
+        window.draw(block);
 
 
-                text.setString(std::to_string(step));
+        if constexpr (not AI) {
+            text.setString(std::to_string(step));
 
-                text.setPosition({x * block_size.x + block_size.x - 20 + 2, y * block_size.y + 1 + 2});
-                text.setFillColor(sf::Color::Black);
-                window.draw(text);
+            // shadow
+            text.setPosition({x * block_size.x + block_size.x - 20 + 2, y * block_size.y + 1 + 2});
+            text.setFillColor(sf::Color::Black);
+            window.draw(text);
 
-                text.setPosition({x * block_size.x + block_size.x - 20    , y * block_size.y + 1    });
-                text.setFillColor(sf::Color::White);
-                window.draw(text);
+            // text
+            text.setPosition({x * block_size.x + block_size.x - 20    , y * block_size.y + 1    });
+            text.setFillColor(sf::Color::White);
+            window.draw(text);
 
-                ++step;
-            }
+            ++step;
         }
     }
 
-    else if (moves.size()) {
+    if constexpr (AI) {
+        const auto [x_end, y_end] = move.positions.back();
+        block.setPosition({x_end * block_size.x, y_end * block_size.y});
+        block.setFillColor(RED_HIGHLIGHT);
+        window.draw(block);
+    }
+}
+
+static void highlight(
+    sf::RenderWindow& window,
+    const std::span<Move> moves, const std::span<Move> highlights, const Move& AI_highlight,
+    sf::RectangleShape& block  , const sf::Vector2f block_size
+) {
+
+
+    constexpr auto AI_MOVE = true;
+    highlighMove<AI_MOVE>(window, AI_highlight, block, block_size);
+
+    for (const auto& move : highlights) highlighMove(window, move, block, block_size);
+
+    if (highlights.empty() and not moves.empty()) {
+        constexpr auto BLINKING_TIME = 0.5s;
         static auto next_switch = std::chrono::steady_clock::now() + BLINKING_TIME;
 
         if (const auto now = std::chrono::steady_clock::now(); now < next_switch) {
@@ -125,7 +147,7 @@ static void numbering(sf::RenderWindow& window, const int x, const int y, const 
 }
 
 
-static void background(sf::RenderWindow& window, const std::span<Move> moves, const std::span<Move> highlights) {
+static void background(sf::RenderWindow& window, const std::span<Move> moves, const std::span<Move> highlights, const Move& AI_highlights) {
     const auto winsize = window.getSize();
     // std::clog << "windo size - x: " << winsize.x << ", y: " << winsize.y << '\n';
 
@@ -153,7 +175,7 @@ static void background(sf::RenderWindow& window, const std::span<Move> moves, co
     }
 
 
-    highlight(window, moves, highlights, block, block_size);
+    highlight(window, moves, highlights, AI_highlights, block, block_size);
 
 
     // effectivly O(1)
@@ -198,6 +220,11 @@ int main() {;
 
     std::span<Move> moves, highlights;
 
+
+    Move AI_move;
+    Move AI_highlights;
+
+
     bool previous_turn{};
 
     while (window.isOpen()) {
@@ -212,24 +239,32 @@ int main() {;
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::F)) puts(board.fen().c_str());
         }
 
+        if (board.done()) continue;
+
         window.clear();
+
+        background(window, moves, highlights, AI_highlights);
+
 
 
         if (previous_turn != board.turn) {
-            puts(board.yellowTurn() ? "Yellow's Turn:" : "Black's Turn:");
-            previous_turn = board.turn;
+            previous_turn = board.turn; // skip one frame 
         }
+        else if (board.blackTurn()) {
 
-        background(window, moves, highlights);
+            std::this_thread::sleep_for(.5s); // wait half a second between each move to make it clear whats going on
 
-        if (board.blackTurn()) {
-            const auto move = board.bestMove();
-            move.prettyPrint();
-            board.play(move);
+            if (not board.AIInflight()) {
+                AI_move = board.bestMove(); // generate a new move 
+                // AI_move.prettyPrint();
+            }
+
+            // just play the current move
+            board.play(AI_move);
         }
 
         board.render(window);
-        std::tie(moves, highlights) = board.update(window);
+        std::tie(moves, highlights, AI_highlights) = board.update(window);
 
         if (board.done()) winningText(window, board.yellowCount() ? "Yellow wins!" : "Black wins!");
 
