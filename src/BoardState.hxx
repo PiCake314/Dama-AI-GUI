@@ -25,7 +25,8 @@
 constexpr auto INF = 100000;
 
 
-consteval auto precomputeData(){
+// for some reason can't put this as a method
+consteval auto precomputeDistancePositions() {
     std::array<std::array<std::array<static_vector<Position, 8>, 4>, 8>, 8> data{};
 
     for(const auto i : range(8uz)){
@@ -46,10 +47,22 @@ consteval auto precomputeData(){
 
     return data;
 }
-constexpr auto DATA_ARRAY = precomputeData();
+
+constexpr inline auto DISTANCE_POSITIONS = precomputeDistancePositions();
+constexpr inline std::array<std::pair<int, int>, 8> PROMOTION_DISTANCE = {{
+    {0  , 120},
+    {0  , 90 },
+    {0  , 60 },
+    {0  , 30 },
+    {30 , 0  },
+    {60 , 0  },
+    {90 , 0  },
+    {120, 0  }
+}};
 
 
-struct BoardState {
+
+class BoardState {
     constexpr static std::string_view STARTING_FEN = "8/bbbbbbbb/bbbbbbbb/8/8/yyyyyyyy/yyyyyyyy/8";
 
     // whoever is true, goes first
@@ -62,9 +75,14 @@ struct BoardState {
     constexpr static auto LEFT  = Position{-1, 0};
 
 
+    std::uint64_t board_bits;
 
     std::array<std::array<Piece, 8>, 8> board;
+
+public:
     bool turn = YELLOW_TURN;
+private:
+
     std::vector<Move> possible_moves;
 
     bool prev_holding = false;
@@ -76,6 +94,7 @@ struct BoardState {
     // std::vector<Move> inflight_moves; // there could be multiple moves in flight!
     bool inflight = false; // is in the middle of a move?
 
+public:
     explicit constexpr BoardState(const std::string_view fen = STARTING_FEN, bool yellow_starts = true) noexcept
     : turn{yellow_starts}
     {
@@ -135,7 +154,6 @@ struct BoardState {
                         // holding_moves.clear();
 
                         if (not inflight) for (const auto& move : possible_moves) {
-                            move.prettyPrint();
                             if (move.positions[0].x == static_cast<int>(x) and move.positions[0].y == static_cast<int>(y)) {
                                 holding_moves.push_back(move);
                             }
@@ -215,8 +233,6 @@ struct BoardState {
                             possible_moves.push_back(move);
                         }
                     }
-
-                    // possible_moves = inflight_moves;
                 } 
             }
             else { // move is inflight
@@ -257,9 +273,6 @@ struct BoardState {
                     move.positions.pop_front();
                     move.captures .pop_front();
                 }
-
-                // inflight = not possible_moves.empty();
-                // possible_moves = inflight_moves;
             }
 
 
@@ -388,7 +401,7 @@ struct BoardState {
 
             Position capture_pos;
             Piece captured_piece;
-            for(int count{}; const auto distance : DATA_ARRAY[size_t(pos.y)][size_t(pos.x)][direction_idx]) {
+            for(int count{}; const auto distance : DISTANCE_POSITIONS[size_t(pos.y)][size_t(pos.x)][direction_idx]) {
                 const auto landing_pos = pos + distance;
 
                 const auto landing_piece = get(landing_pos);
@@ -448,7 +461,7 @@ struct BoardState {
         for (const auto direction_idx : range(4uz)) {
 
                 // counting opponent's pieces across a certain direction. 
-            for (size_t count{}; const auto distance : DATA_ARRAY[size_t(pos.y)][size_t(pos.x)][direction_idx]) {
+            for (size_t count{}; const auto distance : DISTANCE_POSITIONS[size_t(pos.y)][size_t(pos.x)][direction_idx]) {
                 const auto landing_pos = pos + distance;
 
                 const auto landing_piece = get(landing_pos);
@@ -478,6 +491,7 @@ struct BoardState {
     }
 
 
+    // populates the "possible_moves" member
     void generateMoves() {
         possible_moves.clear();
 
@@ -514,10 +528,27 @@ struct BoardState {
         int yellow_total{};
         int black_total{};
 
-        for (const auto& row : board)
-            for (const auto piece : row)
-                if (piece.isYellow())   yellow_total += piece.value();
-                else /* must be black */ black_total += piece.value();
+        for (size_t y{}; const auto& row : board) {
+
+            // const int b_dist_bias = std::max(0, y - 3) * 30;
+            // const int y_dist_bias = std::max(0, 4 - y) * 30;
+
+            const auto b_dist_bias = PROMOTION_DISTANCE[y].first ; // first  is black
+            const auto y_dist_bias = PROMOTION_DISTANCE[y].second; // second is black
+            // std::clog << "y(" << y << "):\n" << "black bias: " << b_dist_bias << "\nyello bias: " << y_dist_bias << '\n';.
+
+
+            for (const auto piece : row) {
+                if (not piece.isActive()) continue; // .value() will not count inactive pieces
+
+
+                if (piece.isYellow())   yellow_total += piece.value() + ((1 - piece.isShaikh()) * y_dist_bias); // don't want shaikhs to be tempted to go up
+                else /* must be black */ black_total += piece.value() + ((1 - piece.isShaikh()) * b_dist_bias); // only pawns need to push
+
+            }
+
+            ++y;
+        }
 
 
         const int perspective = blackTurn() ? 1 : -1;
@@ -548,41 +579,48 @@ struct BoardState {
     }
 
 
-    int minimax(int depth) {
-        if (not depth) return evaluate();
+    // int minimax(int depth) {
+    //     if (not depth) return evaluate();
 
-        // populates the "possible_moves" member
-        generateMoves();
-        if (possible_moves.empty()) return -INF;
-
-
+    //     // populates the "possible_moves" member
+    //     generateMoves();
+    //     if (possible_moves.empty()) return -INF;
 
 
-        const auto moves = std::move(possible_moves);
-        int best = -INF;
-        for (const auto& move : moves) {
-            const auto piece = get(move.positions[0]);
-            makeMove(piece, move);
-            const int eval = -minimax(depth - 1);
-            unMakeMove(piece, move);
 
-            if (eval > best) best = eval;
-        }
+    //     const auto moves = std::move(possible_moves);
+    //     int best = -INF;
+    //     for (const auto& move : moves) {
+    //         const auto piece = get(move.positions[0]);
+    //         makeMove(piece, move);
+    //         const int eval = -minimax(depth - 1);
+    //         unMakeMove(piece, move);
 
-        return best;
-    }
+    //         if (eval > best) best = eval;
+    //     }
+
+    //     return best;
+    // }
 
     int alphaBeta(int depth, int alpha = -INF, int beta = INF) {
-        if (depth == 0) return evaluate();
+        // if (depth <= 0) return evaluate();
+        if (depth <= 0 and  (possible_moves.empty() or not possible_moves[0].doesCapture())) return evaluate();
 
-        // populates the "possible_moves" member
         generateMoves();
+
         const auto moves = std::move(possible_moves);
         if (moves.empty()) return -INF;
 
 
+        // // basically saying if we reached the depth, but we're in a capturing position
+        // // keep going. Untill there is no captures left!
+        // if (depth <= 0 and not moves[0].doesCapture()) return evaluate();
+
+
+
         for (const auto& move : moves) {
             const auto piece = get(move.positions[0]);
+
             makeMove(piece, move);
             const int eval = -alphaBeta(depth - 1, -beta, -alpha);
             unMakeMove(piece, move);
@@ -616,14 +654,17 @@ struct BoardState {
             }
         }
 
-        std::clog << "score: " << best_score << '\n';
+        // std::clog << (yellowTurn() ? "yellow's score: " : "black's score: ") << best_score << '\n';
         return best_move;
     }
 
 
 
+private:
     Move AI_highlighs;
     size_t AI_inflight_idx{};
+public:
+
     void play(const Move& move) noexcept {
         SoundFX sfx = SoundFX::MOVE; // default sound anyway!
 

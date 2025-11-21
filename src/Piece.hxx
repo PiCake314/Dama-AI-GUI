@@ -175,8 +175,8 @@ struct Piece {
     constexpr int value() const noexcept {
         enum {
             INACTIVE = 0,
-            PAWN = 10,
-            SHAIKH = 50,
+            PAWN = 100,
+            SHAIKH = 500,
         };
 
         if (not isActive()) return static_cast<int>(INACTIVE);

@@ -10,23 +10,6 @@
 #include "helper.hxx"
 
 
-using std::chrono::operator""s;
-
-/* Colors!
-Dark  block
-Light block
-
-Dark piece
-Light piece
-Crown 
-
-
-Capture blink
-"from"
-"to"
-*/
-
-
 constexpr sf::Color  DARK_TILE      = {107, 77 , 64 };
 constexpr sf::Color LIGHT_TILE      = {240, 201, 152};
 
@@ -98,6 +81,8 @@ static void highlight(
     for (const auto& move : highlights) highlighMove(window, move, block, block_size);
 
     if (highlights.empty() and not moves.empty()) {
+        using std::chrono::operator""s;
+
         constexpr auto BLINKING_TIME = 0.5s;
         static auto next_switch = std::chrono::steady_clock::now() + BLINKING_TIME;
 
@@ -213,10 +198,11 @@ int main() {;
 
 
     BoardState board;
-    // board = BoardState{"5B2/6b1/8/6b1/6y1/8/8/8"sv, true}; // TEST: move generation stops at promotion
-    // board = BoardState{"8/8/8/3b4/5b2/8/yb1b1Y2/8"sv, true};  // TEST: picks longest move (without switching pieces mid move)
-    // board = BoardState{"8/6b1/5b2/3b4/5b2/8/yb1b1Y2/8"sv, true}; // multiple inflight moves
-    board = BoardState{"Y4Y1Y/8/1bbbbbbb/1bbb3b/1b4b1/4b3/2yyyyyy/8"sv, true}; // cool position it wins at
+    // board = BoardState{"5B2/6b1/8/6b1/6y1/8/8/8"sv}; // TEST: move generation stops at promotion
+    // board = BoardState{"8/8/8/3b4/5b2/8/yb1b1Y2/8"sv};  // TEST: picks longest move (without switching pieces mid move)
+    // board = BoardState{"8/6b1/5b2/3b4/5b2/8/yb1b1Y2/8"sv}; // multiple inflight moves
+    board = BoardState{"Y4Y1Y/8/1bbbbbbb/1bbb3b/1b4b1/4b3/2yyyyyy/8"sv}; // cool position it wins at
+    // board = BoardState{"8/3b4/3b4/8/8/3y4/8/8"sv};
 
     std::span<Move> moves, highlights;
 
@@ -239,34 +225,38 @@ int main() {;
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::F)) puts(board.fen().c_str());
         }
 
-        if (board.done()) continue;
-
         window.clear();
+
+        if (board.done()) {
+            background(window, moves, highlights, AI_highlights);
+            board.render(window);
+            std::tie(moves, highlights, AI_highlights) = board.update(window);
+            winningText(window, board.yellowCount() ? "Yellow wins!" : "Black wins!");
+            window.display();
+            continue;
+        }
 
         background(window, moves, highlights, AI_highlights);
 
 
-
         if (previous_turn != board.turn) {
+            std::clog << "Board Score: " << (1 - board.turn) * -1 * board.evaluate() << '\n';
             previous_turn = board.turn; // skip one frame 
         }
         else if (board.blackTurn()) {
+            using std::chrono::operator""s;
 
-            std::this_thread::sleep_for(.5s); // wait half a second between each move to make it clear whats going on
+            if (board.AIInflight())
+                std::this_thread::sleep_for(.5s); // wait half a second between each move to make it clear whats going on
+            else
+                AI_move = board.bestMove(); // generate a new move
 
-            if (not board.AIInflight()) {
-                AI_move = board.bestMove(); // generate a new move 
-                // AI_move.prettyPrint();
-            }
-
-            // just play the current move
+            // keep play the current move
             board.play(AI_move);
         }
 
         board.render(window);
         std::tie(moves, highlights, AI_highlights) = board.update(window);
-
-        if (board.done()) winningText(window, board.yellowCount() ? "Yellow wins!" : "Black wins!");
 
         window.display();
     }
